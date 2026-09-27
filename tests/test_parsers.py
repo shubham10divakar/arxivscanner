@@ -1,8 +1,11 @@
+import json
+import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
 
-from arxiv_parser.fetchers import build_api_query, build_rss_url, filter_types, parse_api, parse_rss
+from arxiv_parser.display import export_json, export_markdown
+from arxiv_parser.fetchers import build_api_query, build_rss_url, filter_types, parse_api, parse_file, parse_rss
 from arxiv_parser.models import split_id
 
 FIX = Path(__file__).parent / "fixtures"
@@ -42,6 +45,23 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(build_rss_url(["cs.CV", "cs.LG"]), "https://rss.arxiv.org/rss/cs.CV+cs.LG")
         q = build_api_query(["cs.CV", "cs"], datetime(2026, 9, 25), datetime(2026, 9, 27, 23, 59))
         self.assertEqual(q, "(cat:cs.CV OR cat:cs.*) AND submittedDate:[202609250000 TO 202609272359]")
+        # Domains without subdomains are categories themselves, so no wildcard.
+        q = build_api_query(["quant-ph"], datetime(2026, 9, 25), datetime(2026, 9, 27, 23, 59))
+        self.assertTrue(q.startswith("(cat:quant-ph) AND"))
+
+    def test_parse_file_and_exports(self):
+        papers, meta = parse_file((FIX / "sample_rss.xml").read_bytes())
+        self.assertIn("pub_date", meta)
+        papers, meta = parse_file((FIX / "sample_api.xml").read_bytes())
+        self.assertEqual(meta["total"], 2)
+        with tempfile.TemporaryDirectory() as d:
+            export_json(papers, f"{d}/p.json")
+            doc = json.loads(Path(d, "p.json").read_text(encoding="utf-8"))
+            self.assertEqual(doc["count"], 2)
+            self.assertEqual(doc["papers"][0]["abs_url"], "https://arxiv.org/abs/2609.00010")
+            export_markdown(papers, f"{d}/p.md", title="T")
+            md = Path(d, "p.md").read_text(encoding="utf-8")
+            self.assertIn("## 1. Sample API Paper: Graph Attention for Crack Detection", md)
 
 
 if __name__ == "__main__":

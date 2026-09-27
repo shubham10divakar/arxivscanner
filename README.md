@@ -42,6 +42,8 @@ run.py ──► cli.py ──► fetchers.py ──► arXiv (RSS / API)
 | `today` (default) | `rss.arxiv.org/rss/<cats>` | "What did arXiv announce today?" | Matches arXiv's daily "new" listing. Each paper is tagged `new`, `cross` (cross-listed), `replace` or `replace-cross` (updated versions). |
 | `recent` | `export.arxiv.org/api/query` | "What was submitted in the last N days?" | Filters on submission date (UTC). Returns comments and journal refs. Capped by `--max` (default 500). |
 
+The arXiv API sometimes rate-limits in bursts, answering `406` or `429` for a few minutes. `fetch_recent()` backs off for up to about 4 minutes per page. If a later page still fails, it keeps the papers it already fetched and prints a warning.
+
 ### arXiv timing
 
 New lists go out Sunday to Thursday at 20:00 US Eastern time, which is about **05:30 IST the next morning**. There are no announcements on Friday or Saturday nights US Eastern, so the Saturday and Sunday IST feeds are empty. `cs.CV` usually has 150–300 papers per announcement.
