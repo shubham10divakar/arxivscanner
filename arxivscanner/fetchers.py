@@ -1,7 +1,8 @@
-"""Two sources, one output type.
+"""Three sources, one output type.
 
-fetch_today()  -> rss.arxiv.org      "What did arXiv announce today?"
-fetch_recent() -> export.arxiv.org   "What was submitted in the last N days?"
+fetch_today()  -> rss.arxiv.org                  "What did arXiv announce today?"
+fetch_recent() -> export.arxiv.org (search API)  "What was submitted in the last N days?"
+                  oaipmh.arxiv.org (OAI-PMH)     same question; fallback when the API refuses
 """
 from __future__ import annotations
 
@@ -53,8 +54,15 @@ def _split_authors(raw: str) -> List[str]:
 
 # ---------------------------------------------------------------- HTTP
 
-def http_get(url: str, retries: int = 4, backoff: float = 15.0, timeout: float = 60.0) -> bytes:
-    """GET with retries and exponential back-off on network errors, 429 and 5xx."""
+class RefusedError(FetchError):
+    """The server declined the request outright (export.arxiv.org answers 406 when it throttles a host).
+
+    Waiting does not clear it within a run, so callers should switch source instead of retrying.
+    """
+
+
+def http_get(url: str, retries: int = 4, backoff: float = 15.0, timeout: float = 120.0) -> bytes:
+    """GET with retries and exponential back-off on network errors, 429 and 5xx (honouring Retry-After)."""
     req = urllib.request.Request(url, headers={
         "User-Agent": USER_AGENT,
         "Accept": "application/atom+xml, application/rss+xml, application/xml;q=0.9, */*;q=0.1",
@@ -65,8 +73,9 @@ def http_get(url: str, retries: int = 4, backoff: float = 15.0, timeout: float =
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
-            # arXiv's front end sometimes answers 406 spuriously; it clears on retry.
-            if e.code not in (406, 429) and e.code < 500:
+            if e.code in (403, 406):
+                raise RefusedError(f"HTTP {e.code} {e.reason} from {urllib.parse.urlsplit(url).netloc}") from e
+            if e.code != 429 and e.code < 500:
                 raise FetchError(f"HTTP {e.code} for {url}") from e
             last = e
             wait = backoff * (2 ** attempt)
@@ -80,8 +89,8 @@ def http_get(url: str, retries: int = 4, backoff: float = 15.0, timeout: float =
             print(f"  ! {last}; retrying in {wait:.0f}s ({attempt + 1}/{retries})", file=sys.stderr)
             time.sleep(wait)
     hint = ""
-    if isinstance(last, urllib.error.HTTPError) and last.code in (406, 429, 503):
-        hint = " (arXiv is rate-limiting requests; wait a few minutes and try again)"
+    if isinstance(last, urllib.error.HTTPError) and last.code in (429, 503):
+        hint = " (arXiv is busy; wait a few minutes and try again)"
     raise FetchError(f"Giving up on {url}: {last}{hint}")
 
 
@@ -200,9 +209,8 @@ def date_window(days: int, now: Optional[datetime] = None) -> Tuple[datetime, da
     return start, end
 
 
-def fetch_recent(cats: Sequence[str], days: int = 3, max_results: int = 500,
-                 progress: bool = True) -> Tuple[List[Paper], dict]:
-    start, end = date_window(days)
+def _fetch_recent_api(cats: Sequence[str], start: datetime, end: datetime, max_results: int,
+                      progress: bool) -> Tuple[List[Paper], dict]:
     query = build_api_query(cats, start, end)
     papers: List[Paper] = []
     total = 0
@@ -218,10 +226,12 @@ def fetch_recent(cats: Sequence[str], days: int = 3, max_results: int = 500,
         })
         try:
             page, total = parse_api(http_get(f"{API_BASE}?{params}"))
+        except RefusedError:
+            raise
         except FetchError as e:
             if not papers:
                 raise
-            # arXiv rate-limits in bursts; keep what we already have rather than losing it all.
+            # Keep what we already have rather than losing it all.
             warning = f"stopped after {len(papers)} of {total} papers: {e}"
             print(f"  ! {warning}", file=sys.stderr)
             break
@@ -231,10 +241,131 @@ def fetch_recent(cats: Sequence[str], days: int = 3, max_results: int = 500,
             print(f"  fetched {len(papers)} / {min(total, max_results)}", file=sys.stderr)
         if not page or offset >= total:
             break
-    meta = {"query": query, "total": total, "start": start.isoformat(), "end": end.isoformat()}
+    meta = {"source": "api", "query": query, "total": total}
     if warning:
         meta["warning"] = warning
     return dedupe(papers), meta
+
+
+# ---------------------------------------------------------------- OAI-PMH (recent, fallback)
+
+OAI_BASE = "https://oaipmh.arxiv.org/oai"
+OAI_NS = {"oai": "http://www.openarchives.org/OAI/2.0/", "ax": "http://arxiv.org/OAI/arXivRaw/"}
+OAI_MAX_PAGES = 20   # safety cap; one page holds up to ~1300 records
+# Archives that OAI-PMH files under the "physics" group.
+PHYSICS_ARCHIVES = {
+    "astro-ph", "cond-mat", "gr-qc", "hep-ex", "hep-lat", "hep-ph", "hep-th", "math-ph",
+    "nlin", "nucl-ex", "nucl-th", "physics", "quant-ph",
+}
+
+
+def oai_set(code: str) -> str:
+    """cs -> cs:cs, cs.CV -> cs:cs:CV, astro-ph.CO -> physics:astro-ph:CO, quant-ph -> physics:quant-ph."""
+    archive, _, sub = code.partition(".")
+    group = "physics" if archive in PHYSICS_ARCHIVES else archive
+    return f"{group}:{archive}" + (f":{sub}" if sub else "")
+
+
+def parse_oai(data: bytes) -> Tuple[List[Paper], str]:
+    """Parse one ListRecords page in the arXivRaw format. Returns (papers, resumption token or '').
+
+    arXivRaw lists every version with its date, so `published` is the true v1 submission time
+    (the plain arXiv format's <created> is sometimes the latest version's date instead).
+    """
+    root = ET.fromstring(data)
+    err = root.find("oai:error", OAI_NS)
+    if err is not None:
+        if err.get("code") == "noRecordsMatch":
+            return [], ""
+        raise FetchError(f"OAI-PMH error {err.get('code')}: {_clean(err.text)}")
+    papers: List[Paper] = []
+    for rec in root.iterfind(".//oai:record", OAI_NS):
+        header = rec.find("oai:header", OAI_NS)
+        if header is not None and header.get("status") == "deleted":
+            continue
+        m = rec.find(".//ax:arXivRaw", OAI_NS)
+        if m is None:
+            continue
+        versions = [(v.get("version", ""), _rfc822_to_iso(_clean(v.findtext("ax:date", namespaces=OAI_NS))))
+                    for v in m.iterfind("ax:version", OAI_NS)]
+        cats = _clean(m.findtext("ax:categories", namespaces=OAI_NS)).split()
+        papers.append(Paper(
+            arxiv_id=_clean(m.findtext("ax:id", namespaces=OAI_NS)),
+            version=versions[-1][0] if versions else "",
+            title=_clean(m.findtext("ax:title", namespaces=OAI_NS)),
+            authors=_split_authors(m.findtext("ax:authors", namespaces=OAI_NS) or ""),
+            abstract=_clean(m.findtext("ax:abstract", namespaces=OAI_NS)),
+            categories=cats,
+            primary_category=cats[0] if cats else "",
+            published=versions[0][1] if versions else None,
+            updated=versions[-1][1] if len(versions) > 1 else None,
+            comment=_clean(m.findtext("ax:comments", namespaces=OAI_NS)),
+            journal_ref=_clean(m.findtext("ax:journal-ref", namespaces=OAI_NS)),
+            doi=_clean(m.findtext("ax:doi", namespaces=OAI_NS)),
+        ))
+    token = _clean(root.findtext(".//oai:resumptionToken", namespaces=OAI_NS))
+    return papers, token
+
+
+def submitted_in(p: Paper, start: datetime, end: datetime) -> bool:
+    """True if the paper's first version was submitted inside [start, end].
+
+    OAI-PMH lists every record *changed* since a date, so papers that only got a new version
+    appear too; they are dropped by their v1 date. The id's YYMM prefix is a cheap second check.
+    """
+    if not p.published or not re.match(r"\d{4}\.\d{4,5}$", p.arxiv_id):
+        return False
+    if not (start.strftime("%Y-%m-%d") <= p.published[:10] <= end.strftime("%Y-%m-%d")):
+        return False
+    return start.strftime("%y%m") <= p.arxiv_id[:4] <= end.strftime("%y%m")
+
+
+def _fetch_recent_oai(cats: Sequence[str], start: datetime, end: datetime, max_results: int,
+                      progress: bool) -> Tuple[List[Paper], dict]:
+    papers: List[Paper] = []
+    first = True
+    for cat in cats:
+        params = {"verb": "ListRecords", "metadataPrefix": "arXivRaw",
+                  "from": start.strftime("%Y-%m-%d"), "set": oai_set(cat)}
+        for _ in range(OAI_MAX_PAGES):
+            if not first:
+                time.sleep(API_DELAY)
+            first = False
+            page, token = parse_oai(http_get(f"{OAI_BASE}?{urllib.parse.urlencode(params)}"))
+            papers.extend(p for p in page if submitted_in(p, start, end))
+            if progress:
+                print(f"  {oai_set(cat)}: scanned {len(page)} records, {len(papers)} submitted in window",
+                      file=sys.stderr)
+            if not token:
+                break
+            params = {"verb": "ListRecords", "resumptionToken": token}
+    papers = dedupe(papers)
+    papers.sort(key=lambda p: p.arxiv_id, reverse=True)  # ids grow with submission time
+    total = len(papers)
+    return papers[:max_results], {"source": "oai", "total": total}
+
+
+def fetch_recent(cats: Sequence[str], days: int = 3, max_results: int = 500,
+                 progress: bool = True, source: str = "auto") -> Tuple[List[Paper], dict]:
+    """Papers submitted in the last `days` UTC days.
+
+    source: "api" (export.arxiv.org search API), "oai" (OAI-PMH) or "auto" (API, and OAI-PMH
+    when the API refuses the request, which it does with HTTP 406 while it throttles a host).
+    """
+    start, end = date_window(days)
+    if source == "oai":
+        papers, meta = _fetch_recent_oai(cats, start, end, max_results, progress)
+    else:
+        try:
+            papers, meta = _fetch_recent_api(cats, start, end, max_results, progress)
+        except RefusedError as e:
+            if source == "api":
+                raise FetchError(f"{e}. The arXiv API is throttling this machine; "
+                                 f"try --source oai or wait a while.") from e
+            print(f"  ! arXiv API refused the query ({e}); switching to OAI-PMH …", file=sys.stderr)
+            papers, meta = _fetch_recent_oai(cats, start, end, max_results, progress)
+    meta.update({"start": start.isoformat(), "end": end.isoformat()})
+    return papers, meta
 
 
 # ---------------------------------------------------------------- helpers
@@ -256,9 +387,12 @@ def filter_types(papers: Iterable[Paper], types: Optional[Set[str]]) -> List[Pap
 
 
 def parse_file(data: bytes) -> Tuple[List[Paper], dict]:
-    """Parse a saved RSS or API XML document (for offline use)."""
+    """Parse a saved RSS, API or OAI-PMH XML document (for offline use)."""
     head = data[:2000].lstrip()
     if b"<rss" in head:
         return parse_rss(data)
+    if b"<OAI-PMH" in head:
+        papers, _ = parse_oai(data)
+        return papers, {"source": "oai", "total": len(papers)}
     papers, total = parse_api(data)
     return papers, {"total": total}

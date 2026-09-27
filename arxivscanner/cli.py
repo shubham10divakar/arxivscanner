@@ -18,16 +18,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-c", "--cats", nargs="+", metavar="CODE",
                    help="domain(s) or subdomain(s), e.g. cs.CV cs.LG or cs. Omit for the interactive picker.")
     p.add_argument("--mode", choices=("today", "recent"), default="today",
-                   help="today = today's announcement (RSS, default); recent = submitted in the last N days (API)")
+                   help="today = today's announcement (RSS, default); recent = submitted in the last N days")
     p.add_argument("--days", type=int, default=3, help="window for --mode recent (default 3)")
     p.add_argument("--max", type=int, default=500, dest="max_results",
                    help="cap on papers for --mode recent (default 500)")
+    p.add_argument("--source", choices=("auto", "api", "oai"), default="auto",
+                   help="where --mode recent reads from: the search API, OAI-PMH, or auto "
+                        "(API, falling back to OAI-PMH when the API refuses; default)")
     p.add_argument("--type", nargs="+", choices=ANNOUNCE_TYPES, dest="types",
                    help="keep only these announce types (today mode), e.g. --type new cross")
     p.add_argument("--short", action="store_true", help="trim abstracts")
     p.add_argument("--json", metavar="FILE", help="also save results as JSON")
     p.add_argument("--md", metavar="FILE", help="also save results as Markdown")
-    p.add_argument("--from-file", metavar="XML", help="parse a saved RSS/API XML file instead of fetching")
+    p.add_argument("--from-file", metavar="XML", help="parse a saved RSS, API or OAI-PMH XML file instead of fetching")
     p.add_argument("--list", action="store_true", help="show known domains and subdomains, then exit")
     p.add_argument("--no-color", action="store_true", help="disable colour output")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -60,8 +63,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if args.days < 1:
                     print("--days must be at least 1", file=sys.stderr)
                     return 2
-                print(f"Querying the arXiv API for {' + '.join(cats)}, last {days} day(s) …", file=sys.stderr)
-                papers, meta = fetch_recent(cats, days=days, max_results=args.max_results)
+                src = {"auto": "the arXiv API", "api": "the arXiv API", "oai": "arXiv OAI-PMH"}[args.source]
+                print(f"Querying {src} for {' + '.join(cats)}, last {days} day(s) …", file=sys.stderr)
+                papers, meta = fetch_recent(cats, days=days, max_results=args.max_results, source=args.source)
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.", file=sys.stderr)
         return 130
@@ -78,7 +82,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("No papers in this feed. arXiv does not announce on Friday/Saturday nights (US Eastern),\n"
                   "so weekend feeds are empty; try --mode recent --days 3.")
         else:
-            print("No papers found.")
+            print("No papers found. Papers only become visible once arXiv announces them (Sunday to Thursday,\n"
+                  "20:00 US Eastern), so weekend submissions appear after Sunday's announcement.\n"
+                  "Try a larger --days.")
         return 0
     display.print_papers(papers, short=args.short)
 

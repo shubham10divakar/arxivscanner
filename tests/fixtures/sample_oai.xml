@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <responseDate>2026-09-27T10:00:00Z</responseDate>
+  <request verb="ListRecords" metadataPrefix="arXivRaw" from="2026-09-25" set="cs:cs:CV">https://oaipmh.arxiv.org/oai</request>
+  <ListRecords>
+    <record>
+      <header>
+        <identifier>oai:arXiv.org:2609.00020</identifier>
+        <datestamp>2026-09-26</datestamp>
+        <setSpec>cs:cs:CV</setSpec>
+      </header>
+      <metadata>
+        <arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/">
+          <id>2609.00020</id>
+          <submitter>Grace Hopper</submitter>
+          <version version="v1">
+            <date>Fri, 25 Sep 2026 14:02:11 GMT</date>
+            <size>1200kb</size>
+          </version>
+          <title>New OAI Paper:
+            Diffusion for Depth</title>
+          <authors>Grace Hopper, Alan Turing and Ada Lovelace</authors>
+          <categories>cs.CV cs.LG</categories>
+          <comments>9 pages</comments>
+          <abstract>  We estimate depth
+  with diffusion.
+</abstract>
+        </arXivRaw>
+      </metadata>
+    </record>
+    <record>
+      <header>
+        <identifier>oai:arXiv.org:2609.00949</identifier>
+        <datestamp>2026-09-25</datestamp>
+        <setSpec>cs:cs:CV</setSpec>
+      </header>
+      <metadata>
+        <arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/">
+          <id>2609.00949</id>
+          <version version="v1"><date>Tue, 01 Sep 2026 09:08:15 GMT</date></version>
+          <version version="v2"><date>Fri, 25 Sep 2026 08:10:21 GMT</date></version>
+          <title>Same-month paper that only got a v2 in the window</title>
+          <authors>Kim Lee</authors>
+          <categories>cs.CV</categories>
+          <abstract>Replaced, not new.</abstract>
+        </arXivRaw>
+      </metadata>
+    </record>
+    <record>
+      <header>
+        <identifier>oai:arXiv.org:2303.15533</identifier>
+        <datestamp>2026-09-26</datestamp>
+        <setSpec>cs:cs:CV</setSpec>
+      </header>
+      <metadata>
+        <arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/">
+          <id>2303.15533</id>
+          <version version="v1"><date>Mon, 27 Mar 2023 10:00:00 GMT</date></version>
+          <version version="v2"><date>Sat, 26 Sep 2026 10:00:00 GMT</date></version>
+          <title>Old paper with a new version</title>
+          <authors>Updated Old</authors>
+          <categories>cs.LG cs.CV</categories>
+          <abstract>Old.</abstract>
+        </arXivRaw>
+      </metadata>
+    </record>
+    <record>
+      <header status="deleted">
+        <identifier>oai:arXiv.org:2609.00099</identifier>
+        <datestamp>2026-09-26</datestamp>
+      </header>
+    </record>
+    <resumptionToken cursor="0" completeListSize="4"></resumptionToken>
+  </ListRecords>
+</OAI-PMH>

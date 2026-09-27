@@ -76,7 +76,7 @@ def print_header(cats: Sequence[str], mode: str, meta: dict, papers: List[Paper]
         print(c(f"Announcement: {when}", "dim"))
     elif mode == "recent":
         print(c(f"Submitted {meta.get('start', '')[:10]} → {meta.get('end', '')[:10]} (UTC); "
-                f"{meta.get('total', 0)} matched on arXiv", "dim"))
+                f"{meta.get('total', 0)} matched via {'OAI-PMH' if meta.get('source') == 'oai' else 'the API'}", "dim"))
     if meta.get("warning"):
         print(c(f"Warning: {meta['warning']}", "yellow"))
     counts = Counter(p.announce_type for p in papers if p.announce_type)

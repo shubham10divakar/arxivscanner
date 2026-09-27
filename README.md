@@ -6,12 +6,14 @@ It uses only the Python standard library, so there is nothing to `pip install`. 
 
 ## Installation
 
-Install from GitHub with pip:
+Install from PyPI:
 
 ```bash
-pip install git+https://github.com/shubham10divakar/arxivscanner.git
+pip install arxivscanner
 arxivscanner --list        # check it works: prints every known domain and subdomain
 ```
+
+To upgrade later, run `pip install -U arxivscanner`. To get the latest unreleased code, run `pip install git+https://github.com/shubham10divakar/arxivscanner.git`.
 
 This installs an `arxivscanner` command. `python -m arxivscanner …` works the same way. Use `python3 -m pip` on macOS or Linux if `pip` points at an older Python.
 
@@ -49,21 +51,23 @@ arxivscanner -c cs.CV --type new               # only brand-new submissions (no 
 arxivscanner -c cs.CV cs.LG --short            # two subdomains, abstracts trimmed
 arxivscanner -c cs                             # the whole Computer Science domain
 arxivscanner -c cs.CV --mode recent --days 3   # everything submitted in the last 3 days
+arxivscanner -c cs.CV --mode recent --source oai   # same, read straight from OAI-PMH
 arxivscanner -c cs.CV --md cv.md --json cv.json   # also save the results to files
-arxivscanner --from-file saved_feed.xml        # parse a previously saved RSS/API XML file offline
+arxivscanner --from-file saved_feed.xml        # parse a saved RSS, API or OAI-PMH XML file offline
 ```
 
 | Flag | Meaning | Default |
 |---|---|---|
 | `-c, --cats CODE …` | Domain(s) or subdomain(s), such as `cs.CV cs.LG`, `cs` or `quant-ph`. Leave it out to get the interactive picker. | — |
-| `--mode today\|recent` | `today` is today's announcement (RSS). `recent` is everything submitted in the last `--days` days (API). | `today` |
+| `--mode today\|recent` | `today` is today's announcement (RSS). `recent` is everything submitted in the last `--days` days. | `today` |
 | `--days N` | Window size for `--mode recent`, in whole UTC days, including today. | `3` |
 | `--max N` | Maximum number of papers for `--mode recent`. | `500` |
+| `--source auto\|api\|oai` | Where `--mode recent` reads from. `api` is the arXiv search API, `oai` is arXiv's OAI-PMH feed, and `auto` tries the API and switches to OAI-PMH if the API refuses (see [Rate limiting](#rate-limiting)). | `auto` |
 | `--type T …` | Keep only these announcement types (today mode): `new`, `cross`, `replace`, `replace-cross`. | all |
 | `--short` | Trim each abstract to about 300 characters. | off |
 | `--json FILE` | Also save the results as JSON (all fields plus the abs and PDF URLs). | — |
 | `--md FILE` | Also save the results as a Markdown reading list. | — |
-| `--from-file XML` | Parse a saved RSS or API XML file instead of fetching. | — |
+| `--from-file XML` | Parse a saved RSS, API or OAI-PMH (`arXivRaw`) XML file instead of fetching. | — |
 | `--list` | Print every built-in domain and subdomain, then exit. | — |
 | `--no-color` | Plain output, for example when piping to a file. `NO_COLOR` is also respected. | — |
 | `--version` | Show the version. | — |
@@ -73,9 +77,9 @@ arxivscanner --from-file saved_feed.xml        # parse a previously saved RSS/AP
 | Mode | Source | Answers | Notes |
 |---|---|---|---|
 | `today` (default) | `rss.arxiv.org/rss/<cats>` | "What did arXiv announce today?" | Matches arXiv's daily "new" listing. Each paper is tagged `new`, `cross` (cross-listed from another category), `replace` or `replace-cross` (an updated version of an older paper). |
-| `recent` | `export.arxiv.org/api/query` | "What was submitted in the last N days?" | Filters on submission date (UTC). Also includes author comments (page counts, venue) and journal refs. Capped by `--max`. |
+| `recent` | `export.arxiv.org/api/query`, or `oaipmh.arxiv.org/oai` as a fallback | "What was submitted in the last N days?" | Filters on first-version submission date (UTC), newest first. Also includes author comments (page counts, venue) and journal refs. Capped by `--max`. |
 
-**When is there something new?** arXiv announces Sunday to Thursday at 20:00 US Eastern time, which is about **05:30 IST the next morning**. There are no announcements on Friday or Saturday nights US Eastern, so the Saturday and Sunday (IST) feeds are empty. On those days, use `--mode recent --days 3`. `cs.CV` usually has 150–300 papers per announcement.
+**When is there something new?** arXiv announces Sunday to Thursday at 20:00 US Eastern time, which is about **05:30 IST the next morning**. There are no announcements on Friday or Saturday nights US Eastern, so the Saturday and Sunday (IST) feeds are empty. On those days, use `--mode recent --days 4` or more. A paper only becomes visible once it is announced, so papers submitted on Friday or over the weekend first show up after Sunday night's announcement, in both modes. `cs.CV` usually has 150–300 papers per announcement.
 
 ### Example output
 
@@ -108,7 +112,17 @@ Run `arxivscanner --list` to see all built-in codes. They cover cs, eess, stat, 
 
 ### Rate limiting
 
-The arXiv API sometimes rate-limits in bursts, answering `406` or `429` for a few minutes. The tool retries with back-off for up to about 4 minutes per request and waits 3 seconds between pages, as arXiv's terms ask. If a later page still fails, it keeps the papers it already fetched and prints a warning. If the first request fails, wait a few minutes and run the command again. The RSS feed (`today` mode) is rarely affected.
+The arXiv search API (`export.arxiv.org`) throttles hosts. While it does, it answers `HTTP 406 Not Acceptable` to any query it hasn't cached, and waiting a few minutes often doesn't clear it. So with the default `--source auto`, the tool doesn't retry a 406. It switches straight to arXiv's OAI-PMH feed (`oaipmh.arxiv.org`), which gives the same papers with the same fields:
+
+```
+Querying the arXiv API for cs.AI, last 4 day(s) …
+  ! arXiv API refused the query (HTTP 406 Not Acceptable from export.arxiv.org); switching to OAI-PMH …
+  cs:cs:AI: scanned 659 records, 172 submitted in window
+```
+
+OAI-PMH lists every record changed since a date, including older papers that only got a new version. The tool keeps only papers whose first version was submitted inside the window. For a 4-day `cs.AI` window this gave exactly the same 172 papers as the API.
+
+Busy responses (`429`, `503`) and network errors are retried with back-off, honouring `Retry-After`. The tool waits 3 seconds between requests, as arXiv's terms ask. If a later API page fails for another reason, it keeps the papers it already has and prints a warning. The RSS feed (`today` mode) is rarely affected.
 
 ## Development
 
@@ -122,7 +136,7 @@ The version lives in `arxivscanner/__init__.py` (`__version__`).
 ## Design
 
 ```
-arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / API)
+arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / API / OAI-PMH)
                    │             │
                    │             └─► models.Paper   (one normalised record)
                    ├─► taxonomy.py  (domain → subdomain names, picker)
@@ -133,13 +147,13 @@ arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / API)
 |---|---|
 | `taxonomy.py` | Built-in map of domains and subdomains, plus the interactive picker. |
 | `models.py` | `Paper` dataclass: id, version, title, authors, abstract, categories, primary category, announce type, dates, comment, journal ref, DOI, abs and PDF URLs. |
-| `fetchers.py` | Two sources, one output type. `fetch_today()` reads the RSS feed. `fetch_recent()` pages through the API. Also handles retries with back-off, the 3 s delay between API calls, de-duplication and type filtering. |
+| `fetchers.py` | Three sources, one output type. `fetch_today()` reads the RSS feed. `fetch_recent()` pages through the search API and falls back to OAI-PMH (`arXivRaw` records, filtered by v1 date) when the API refuses. Also handles retries with back-off, the 3 s delay between calls, de-duplication and type filtering. |
 | `display.py` | Colour terminal output (works in Windows 10+ consoles too) plus `export_json` and `export_markdown`. |
 | `cli.py` | Flags and the interactive picker. `--from-file` parses a saved XML file offline. |
 
 ## Roadmap
 
-- **0.1** (current) Fetch, display and export by domain and subdomain.
+- **0.1** (current) Fetch, display and export by domain and subdomain. 0.1.1 adds the OAI-PMH fallback for `--mode recent`.
 - **0.2** Remember papers already seen (a local SQLite or JSON file) so each run shows only unseen papers.
 - **0.3** Keyword or interest filtering and ranking (title and abstract match, later embeddings).
 - **0.4** Daily automation (a scheduled task or cron) and a digest by email, Telegram or HTML.
