@@ -9,7 +9,7 @@ import textwrap
 from collections import Counter
 from datetime import date
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Optional, Pattern, Sequence
 
 from .models import Paper
 from .taxonomy import describe
@@ -59,6 +59,23 @@ def c(text: str, *styles: str) -> str:
     return f"\033[{codes}m{text}\033[0m"
 
 
+def _hl(text: str, pattern: Optional[Pattern[str]], *styles: str) -> str:
+    """Colour `text` with `styles`, and keyword matches in bold yellow."""
+    if not pattern or not _use_color:
+        return c(text, *styles)
+    out, pos = [], 0
+    for m in pattern.finditer(text):
+        out.append(c(text[pos:m.start()], *styles) if m.start() > pos else "")
+        out.append(c(m.group(0), "bold", "yellow"))
+        pos = m.end()
+    out.append(c(text[pos:], *styles) if pos < len(text) else "")
+    return "".join(out)
+
+
+def _quoted(keywords: Sequence[str]) -> str:
+    return " or ".join(f'"{k}"' for k in keywords)
+
+
 def _width() -> int:
     return max(60, min(shutil.get_terminal_size((100, 24)).columns, 120))
 
@@ -69,7 +86,8 @@ def _authors(authors: Sequence[str], limit: int = 6) -> str:
     return ", ".join(authors[:limit]) + f", … (+{len(authors) - limit})"
 
 
-def print_header(cats: Sequence[str], mode: str, meta: dict, papers: List[Paper]) -> None:
+def print_header(cats: Sequence[str], mode: str, meta: dict, papers: List[Paper],
+                 keywords: Sequence[str] = (), searched: int = 0) -> None:
     names = ", ".join(f"{cat} ({describe(cat)})" if describe(cat) else cat for cat in cats)
     print(c(f"arXiv · {names}", "bold"))
     if mode == "today":
@@ -84,7 +102,10 @@ def print_header(cats: Sequence[str], mode: str, meta: dict, papers: List[Paper]
     counts = Counter(p.announce_type for p in papers if p.announce_type)
     order = list(TYPE_COLOR) + sorted(set(counts) - set(TYPE_COLOR))
     summary = "  ".join(c(f"{k}: {counts[k]}", TYPE_COLOR.get(k, "bold")) for k in order if counts[k])
-    print(f"{len(papers)} papers  {summary}\n")
+    if keywords:
+        print(f"{len(papers)} of {searched} papers match {c(_quoted(keywords), 'bold', 'yellow')}  {summary}\n")
+    else:
+        print(f"{len(papers)} papers  {summary}\n")
 
 
 def _day(iso: str) -> str:
@@ -98,7 +119,7 @@ def _day_summary(papers: List[Paper], iso: str) -> str:
     return f"{new + cross} papers ({new} new, {cross} cross-lists)"
 
 
-def print_papers(papers: List[Paper], short: bool = False) -> None:
+def print_papers(papers: List[Paper], short: bool = False, highlight: Optional[Pattern[str]] = None) -> None:
     w = _width()
     day = None
     for i, p in enumerate(papers, 1):
@@ -111,7 +132,7 @@ def print_papers(papers: List[Paper], short: bool = False) -> None:
         print(c(head, "bold") + c(tag, TYPE_COLOR.get(p.announce_type, "dim")))
         indent = "     "
         for line in textwrap.wrap(p.title, w - len(indent)):
-            print(indent + c(line, "bold", "blue"))
+            print(indent + _hl(line, highlight, "bold", "blue"))
         if p.authors:
             print(textwrap.fill(_authors(p.authors), w, initial_indent=indent, subsequent_indent=indent))
         meta = [", ".join(p.categories)]
@@ -122,7 +143,8 @@ def print_papers(papers: List[Paper], short: bool = False) -> None:
         print(indent + c(textwrap.shorten(" · ".join(meta), w * 2 - len(indent), placeholder=" …"), "dim"))
         if p.abstract:
             abstract = textwrap.shorten(p.abstract, 300, placeholder=" …") if short else p.abstract
-            print(textwrap.fill(abstract, w, initial_indent=indent, subsequent_indent=indent))
+            for line in textwrap.wrap(abstract, w - len(indent)):
+                print(indent + _hl(line, highlight))
         print(indent + c(p.abs_url, "cyan") + "  " + c(p.pdf_url, "dim"))
         print()
 
@@ -132,7 +154,11 @@ def export_json(papers: List[Paper], path: str, meta: Optional[dict] = None) -> 
     Path(path).write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def export_markdown(papers: List[Paper], path: str, title: str = "arXiv papers") -> None:
+def export_markdown(papers: List[Paper], path: str, title: str = "arXiv papers",
+                    highlight: Optional[Pattern[str]] = None) -> None:
+    def bold(text: str) -> str:
+        return highlight.sub(lambda m: f"**{m.group(0)}**", text) if highlight else text
+
     out = [f"# {title}", "", f"{len(papers)} papers", ""]
     day = None
     for i, p in enumerate(papers, 1):
@@ -141,7 +167,7 @@ def export_markdown(papers: List[Paper], path: str, title: str = "arXiv papers")
             out.append(f"## {_day(day)} · {_day_summary(papers, day)}")
             out.append("")
         tag = f" `{p.announce_type}`" if p.announce_type else ""
-        out.append(f"{'###' if p.announced else '##'} {i}. {p.title}")
+        out.append(f"{'###' if p.announced else '##'} {i}. {bold(p.title)}")
         out.append("")
         out.append(f"[{p.arxiv_id}{p.version}]({p.abs_url}) · [PDF]({p.pdf_url}){tag} · {', '.join(p.categories)}")
         out.append("")
@@ -152,6 +178,6 @@ def export_markdown(papers: List[Paper], path: str, title: str = "arXiv papers")
             out.append(f"> {p.comment}")
             out.append("")
         if p.abstract:
-            out.append(p.abstract)
+            out.append(bold(p.abstract))
             out.append("")
     Path(path).write_text("\n".join(out), encoding="utf-8")

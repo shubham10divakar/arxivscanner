@@ -6,8 +6,10 @@ from datetime import date
 from pathlib import Path
 from unittest import mock
 
-from arxivscanner import fetchers
+from arxivscanner import display, fetchers, taxonomy
+from arxivscanner.cli import main
 from arxivscanner.display import export_json, export_markdown
+from arxivscanner.filters import filter_keywords, keyword_pattern
 from arxivscanner.fetchers import (announcement_days, build_rss_url, filter_types, group_by_announcement, oai_set,
                                    parse_api, parse_file, parse_oai, parse_rss)
 from arxivscanner.models import Paper, split_id
@@ -140,6 +142,59 @@ class TestParsers(unittest.TestCase):
             export_markdown(papers, f"{d}/p.md", title="T")
             md = Path(d, "p.md").read_text(encoding="utf-8")
             self.assertIn("## 1. Sample API Paper: Graph Attention for Crack Detection", md)
+
+
+class TestKeywords(unittest.TestCase):
+    def test_matching_rules(self):
+        p = keyword_pattern(["gan", "attention", "vision transformer"])
+        for text in ["GANs work", "self-attention", "Attention!", "a Vision  Transformer"]:
+            self.assertTrue(p.search(text), text)
+        for text in ["organization", "inattention", "vision tasks"]:
+            self.assertFalse(p.search(text), text)
+        self.assertIsNone(keyword_pattern([]))
+        self.assertIsNone(keyword_pattern(["  "]))
+
+    def test_filter_title_or_abstract(self):
+        papers = [Paper(arxiv_id="1", title="Attention is all you need", abstract="Transformers."),
+                  Paper(arxiv_id="2", title="Diffusion", abstract="We add cross-attention layers."),
+                  Paper(arxiv_id="3", title="Graphs", abstract="Nothing relevant.")]
+        kept = filter_keywords(papers, keyword_pattern(["attention"]))
+        self.assertEqual([p.arxiv_id for p in kept], ["1", "2"])
+
+    def test_cli(self):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as d, mock.patch("sys.stdout", out), \
+                mock.patch("sys.stderr", io.StringIO()):
+            code = main(["--from-file", str(FIX / "sample_rss.xml"), "--no-color", "-k", "looped", "medical segmentation",
+                         "--md", f"{d}/p.md", "--json", f"{d}/p.json"])
+            md = Path(d, "p.md").read_text(encoding="utf-8")
+            doc = json.loads(Path(d, "p.json").read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        text = out.getvalue()
+        self.assertIn('2 of 3 papers match "looped" or "medical segmentation"', text)
+        self.assertIn("2609.00001", text)
+        self.assertIn("2609.00002", text)
+        self.assertNotIn("2608.12345", text)
+        self.assertIn("**Looped**", md)                       # matches are bolded in Markdown
+        self.assertEqual(doc["meta"]["keywords"], ["looped", "medical segmentation"])
+
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out), mock.patch("sys.stderr", io.StringIO()):
+            main(["--from-file", str(FIX / "sample_rss.xml"), "--no-color", "-k", "quantum"])
+        self.assertIn('None of the 3 papers mention "quantum"', out.getvalue())
+
+    def test_highlight(self):
+        with mock.patch.object(display, "_use_color", True):
+            line = display._hl("Looped attention, again", keyword_pattern(["attention"]), "blue")
+        self.assertIn("\033[1;33mattention\033[0m", line)
+
+    def test_prompt(self):
+        with mock.patch("builtins.input", return_value='attention "vision transformer"'):
+            self.assertEqual(taxonomy.pick_keywords(), ["attention", "vision transformer"])
+        with mock.patch("builtins.input", return_value=""):
+            self.assertEqual(taxonomy.pick_keywords(), [])
+        with mock.patch("builtins.input", return_value='unbalanced "quote'):
+            self.assertEqual(taxonomy.pick_keywords(), ["unbalanced", "quote"])
 
 
 if __name__ == "__main__":

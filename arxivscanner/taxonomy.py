@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from typing import Dict, List, Optional, Tuple
 
 # domain code -> (domain name, {subdomain code: subdomain name})
@@ -252,3 +253,12 @@ def pick_mode() -> Tuple[str, int]:
             if d.isdigit() and int(d) > 0:
                 return "recent", int(d)
         print("  Enter 1 or 2.")
+
+
+def pick_keywords() -> List[str]:
+    """Optional keyword filter. Quotes group a phrase: attention "vision transformer"."""
+    raw = input("Keywords to filter by (Enter to skip): ").strip()
+    try:
+        return shlex.split(raw)
+    except ValueError:  # unbalanced quote
+        return raw.replace('"', " ").split()

@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from . import __version__, display, taxonomy
 from .fetchers import ANNOUNCE_TYPES, FetchError, fetch_recent, fetch_today, filter_types, parse_file
+from .filters import filter_keywords, keyword_pattern
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,6 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--type", nargs="+", choices=ANNOUNCE_TYPES, dest="types",
                    help="keep only these announce types, e.g. --type new "
                         "(recent mode has new and cross; today mode also has replace, replace-cross)")
+    p.add_argument("-k", "--keyword", nargs="+", metavar="WORD", dest="keywords",
+                   help='keep papers whose title or abstract mentions any of these words, '
+                        'e.g. -k attention "vision transformer" (case-insensitive, matches from the start of a word)')
     p.add_argument("--short", action="store_true", help="trim abstracts")
     p.add_argument("--json", metavar="FILE", help="also save results as JSON")
     p.add_argument("--md", metavar="FILE", help="also save results as Markdown")
@@ -46,12 +50,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     try:
+        keywords = args.keywords or []
         if args.from_file:
             papers, meta = parse_file(Path(args.from_file).read_bytes())
             cats = args.cats or sorted({p.primary_category for p in papers if p.primary_category})
             mode = "today" if "pub_date" in meta else "file"
         else:
-            cats, mode, days = _resolve_target(args)
+            cats, mode, days, keywords = _resolve_target(args)
             bad = [cat for cat in cats if not taxonomy.is_valid_code(cat)]
             if bad:
                 print(f"Not a valid arXiv code: {', '.join(bad)} (try --list)", file=sys.stderr)
@@ -75,31 +80,44 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.types:
         papers = filter_types(papers, set(args.types))
+    searched = len(papers)
+    pattern = keyword_pattern(keywords)
+    if pattern:
+        papers = filter_keywords(papers, pattern)
+    else:
+        keywords = []
 
-    display.print_header(cats, mode, meta, papers)
+    display.print_header(cats, mode, meta, papers, keywords=keywords, searched=searched)
     if not papers:
-        if mode == "today":
+        if keywords and searched:
+            print(f"None of the {searched} papers mention {display._quoted(keywords)}. "
+                  "Try other keywords or a larger --days.")
+        elif mode == "today":
             print("No papers in this feed. arXiv does not announce on Friday/Saturday nights (US Eastern),\n"
                   "so weekend feeds are empty; try --mode recent --days 1 for the latest announcement.")
         else:
             print("No papers in these announcements. Try a larger --days, or check the category code (--list).")
         return 0
-    display.print_papers(papers, short=args.short)
+    display.print_papers(papers, short=args.short, highlight=pattern)
 
     title = f"arXiv {' + '.join(cats)} — {meta.get('pub_date') or meta.get('end', '')[:10] or mode}"
+    if keywords:
+        title += f" — {display._quoted(keywords)}"
     if args.json:
-        display.export_json(papers, args.json, meta={**meta, "categories": cats, "mode": mode})
+        display.export_json(papers, args.json,
+                            meta={**meta, "categories": cats, "mode": mode, "keywords": keywords})
         print(f"Saved JSON → {args.json}", file=sys.stderr)
     if args.md:
-        display.export_markdown(papers, args.md, title=title)
+        display.export_markdown(papers, args.md, title=title, highlight=pattern)
         print(f"Saved Markdown → {args.md}", file=sys.stderr)
     return 0
 
 
 def _resolve_target(args: argparse.Namespace):
     if args.cats:
-        return args.cats, args.mode, args.days
+        return args.cats, args.mode, args.days, args.keywords or []
     cats = taxonomy.pick_categories()
     mode, days = taxonomy.pick_mode()
+    keywords = args.keywords if args.keywords is not None else taxonomy.pick_keywords()
     print()
-    return cats, mode, days
+    return cats, mode, days, keywords
