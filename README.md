@@ -260,8 +260,9 @@ arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / OAI-P
 
 ## Roadmap
 
-- **0.1** (current) Fetch, display and export by domain and subdomain. 0.1.1 added the OAI-PMH fallback for `--mode recent`; the next release makes `recent` match arXiv's "recent" page.
-- **0.2** Remember papers already seen (a local SQLite or JSON file) so each run shows only unseen papers.
-- **0.3** Ranking by interest (keyword weights, favourite authors; later embeddings). Plain keyword search (`-k`) is already in.
-- **0.4** Daily automation (a scheduled task or cron) and a digest by email, Telegram or HTML.
-- **0.5** Dashboard view with bookmarking.
+- **0.1** Fetch, display and export by domain and subdomain.
+- **0.2** (current) `recent` mode matches arXiv's "recent" page (the last N announcements, grouped by day), keyword search with `-k`, author names with accents shown correctly, and tests on Linux, macOS and Windows.
+- **0.3** Saved profiles (`--profile vision` for your usual categories and keywords) and remembering papers already seen, so each run shows only new ones.
+- **0.4** Daily digest: a scheduled run that writes an HTML or Markdown digest, or sends it by email.
+- **0.5** Ranking by interest (keyword weights, favourite authors; later embeddings).
+- **Later** Bookmarks, BibTeX/Zotero export and PDF download; an interactive browser or dashboard.

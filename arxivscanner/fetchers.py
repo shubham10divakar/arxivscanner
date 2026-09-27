@@ -7,6 +7,7 @@ fetch_recent() -> oaipmh.arxiv.org   "What did arXiv announce in its last N anno
 from __future__ import annotations
 
 import re
+import unicodedata
 import sys
 import time
 import urllib.error
@@ -38,7 +39,42 @@ class FetchError(RuntimeError):
 
 
 def _clean(text: Optional[str]) -> str:
-    return re.sub(r"\s+", " ", text or "").strip()
+    """Collapse whitespace and turn LaTeX accents into letters."""
+    return detex(re.sub(r"\s+", " ", text or "").strip())
+
+
+# LaTeX accents as combining characters: \'a -> á, \v{s} -> š, \c{c} -> ç ...
+_TEX_SYMBOL_ACCENTS = {"'": "\u0301", "`": "\u0300", "^": "\u0302", '"': "\u0308", "~": "\u0303",
+                       "=": "\u0304", ".": "\u0307"}
+_TEX_LETTER_ACCENTS = {"u": "\u0306", "v": "\u030c", "H": "\u030b", "c": "\u0327", "k": "\u0328", "r": "\u030a"}
+_TEX_LETTERS = {"ss": "ß", "o": "ø", "O": "Ø", "l": "ł", "L": "Ł", "ae": "æ", "AE": "Æ",
+                "oe": "œ", "OE": "Œ", "aa": "å", "AA": "Å", "i": "ı", "j": "ȷ"}
+_TEX_SYMBOL_RE = re.compile(r"""\\([`'^"~=.])\s*(?:\{\s*(\\[ij]|[A-Za-z])\s*\}|(\\[ij](?![A-Za-z])|[A-Za-z]))""")
+_TEX_LETTER_RE = re.compile(r"\\([uvHckr])(?:\s*\{\s*(\\[ij]|[A-Za-z])\s*\}|\s+([A-Za-z]))")
+_TEX_SPECIAL_RE = re.compile(r"\{?\\(ss|ae|AE|oe|OE|aa|AA|[oOlLij])(?![A-Za-z])(?:\{\})?\}?")
+_BRACED_LETTER_RE = re.compile(r"\{([^\x00-\x7f])\}")
+_TEX_ESCAPES = {"&": "&", "_": "_", "%": "%", "#": "#", "dag": "†", "ddag": "‡"}
+_TEX_ESCAPE_RE = re.compile(r"\\([&_%#]|d?dag(?![A-Za-z]))")
+
+
+def detex(text: str) -> str:
+    """Turn LaTeX accent commands, as found in arXiv metadata, into Unicode letters.
+
+    Tom\\'as -> Tomás, Deu{\\ss}er -> Deußer, Luk\\'a\\v{s} -> Lukáš, R\\&D -> R&D. Math such as $x^{2}$
+    is left alone.
+    """
+    if "\\" not in text:
+        return text
+
+    def accent(mark: str, base: str) -> str:
+        base = {"\\i": "i", "\\j": "j"}.get(base, base)
+        return unicodedata.normalize("NFC", base + mark)
+
+    text = _TEX_SYMBOL_RE.sub(lambda m: accent(_TEX_SYMBOL_ACCENTS[m.group(1)], m.group(2) or m.group(3)), text)
+    text = _TEX_LETTER_RE.sub(lambda m: accent(_TEX_LETTER_ACCENTS[m.group(1)], m.group(2) or m.group(3)), text)
+    text = _TEX_SPECIAL_RE.sub(lambda m: _TEX_LETTERS[m.group(1)], text)
+    text = _TEX_ESCAPE_RE.sub(lambda m: _TEX_ESCAPES[m.group(1)], text)
+    return _BRACED_LETTER_RE.sub(r"\1", text)
 
 
 def _split_authors(raw: str) -> List[str]:

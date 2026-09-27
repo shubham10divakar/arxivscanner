@@ -47,6 +47,22 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(split_id("http://arxiv.org/abs/cs/0112017v1"), ("cs/0112017", "v1"))
         self.assertEqual(split_id("2609.00001"), ("2609.00001", ""))
 
+    def test_detex(self):
+        cases = {
+            r"Tom\'as Lozano-P\'erez": "Tomás Lozano-Pérez",
+            r"Tobias Deu{\ss}er": "Tobias Deußer",
+            r"Frederik M{\o}llskov Trier": "Frederik Møllskov Trier",
+            r"Luk\'a\v{s} Br\r{u}na": "Lukáš Brůna",
+            r"Mateusz J\k{a}kalak, Rafa{\l} Jakubowski": "Mateusz Jąkalak, Rafał Jakubowski",
+            r"Sophie T\"otterstr\"om, Moun\^im": "Sophie Tötterström, Mounîm",
+            r"Fran\c{c}ois \'{E}mile, Na\"{\i}ve": "François Émile, Naïve",
+            r"Syed{\dag}, EDF R\&D, Overlay\_dx, 90.07\%": "Syed†, EDF R&D, Overlay_dx, 90.07%",
+            # Math and other commands are left alone.
+            r"$x^{2}$ with \emph{math}, $\lambda \in \Omega$, \daggerfoo": r"$x^{2}$ with \emph{math}, $\lambda \in \Omega$, \daggerfoo",
+        }
+        for src, want in cases.items():
+            self.assertEqual(fetchers.detex(src), want)
+
     def test_urls(self):
         self.assertEqual(build_rss_url(["cs.CV", "cs.LG"]), "https://rss.arxiv.org/rss/cs.CV+cs.LG")
         self.assertEqual(oai_set("cs.CV"), "cs:cs:CV")
@@ -60,7 +76,7 @@ class TestParsers(unittest.TestCase):
         self.assertEqual([p.arxiv_id for p in papers], ["2609.30020", "2609.00949", "2303.15533"])  # deleted skipped
         p = papers[0]
         self.assertEqual((p.version, p.title), ("v1", "New OAI Paper: Diffusion for Depth"))
-        self.assertEqual(p.authors, ["Grace Hopper", "Alan Turing", "Ada Lovelace"])
+        self.assertEqual(p.authors, ["Grace Hopper", "Tomás Lozano-Pérez", "Ada Lovelace"])  # LaTeX accents decoded
         self.assertEqual((p.primary_category, p.categories), ("cs.CV", ["cs.CV", "cs.LG"]))
         self.assertEqual((p.abstract, p.comment), ("We estimate depth with diffusion.", "9 pages"))
         self.assertTrue(p.published.startswith("2026-09-25T14:02:11"))
