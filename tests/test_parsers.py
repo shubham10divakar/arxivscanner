@@ -319,9 +319,17 @@ class TestLibrary(unittest.TestCase):
 
     def test_config_show_and_settings(self):
         code, out, _ = run_cli("config")
-        self.assertIn(f"Library:   {self.default}   (set by: default)", out)
+        self.assertIn("Built with ♥ by Subham Divakar", out)
+        self.assertIn(f"Library:   {self.default}\n", out)
+        self.assertIn("default · change with: arxivscanner config --library FOLDER", out)
         self.assertIn(str(self.default / "pdfs"), out)
-        self.assertIn("Auto-PDF:  off", out)
+        self.assertIn("default, inside the library · change with: arxivscanner config --pdfs FOLDER", out)
+        self.assertIn("Auto-PDF:  off (default · turn on with: arxivscanner config --auto-pdf on)", out)
+
+        run_cli("config", "--library", str(Path(_home.name) / "research"))
+        code, out, _ = run_cli("config")
+        self.assertIn("your setting · back to the default with: arxivscanner config --library default", out)
+        run_cli("config", "--library", "default")
 
         pdfs = Path(_home.name) / "big-drive" / "papers"
         run_cli("config", "--pdfs", str(pdfs), "--auto-pdf", "on")
@@ -485,6 +493,10 @@ class TestLibrary(unittest.TestCase):
                 mock.patch("builtins.input", lambda prompt="": next(answers)):
             code, out, err = run_cli("--no-color")
         self.assertEqual(code, 0, err)
+        self.assertIn("Welcome to arxivscanner", out)                # the welcome banner comes first
+        self.assertIn("Built with ♥ by Subham Divakar", out)
+        self.assertIn("See your settings any time with: arxivscanner config", out)
+        self.assertLess(out.index("Welcome"), out.index("Sample Paper A"))
         self.assertIn("Numbers from the list only", out)
         lib = library.Library(self.default)
         self.assertEqual(len(lib), 3)
@@ -500,6 +512,14 @@ class TestLibrary(unittest.TestCase):
                 mock.patch("builtins.input", return_value=""):
             run_cli("--no-color")
         self.assertEqual(len(library.Library(self.default)), 3)
+
+    def test_welcome_only_in_interactive_mode_and_help(self):
+        code, out, _ = run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        self.assertNotIn("Welcome", out)                               # scripts and pipes stay clean
+        from arxivscanner.cli import build_parser
+        help_text = build_parser().format_help()
+        self.assertIn("Built with ♥ by Subham Divakar", help_text)
+        self.assertIn("arxivscanner config", help_text)
 
     def test_library_flag_and_empty_library(self):
         other = Path(_home.name) / "other"

@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Sequence, Tuple
 
-from . import display, fetchers
+from . import __version__, display, fetchers
 from . import library as _library
 from .fetchers import FetchError, fetch_papers
 from .filters import filter_keywords, keyword_pattern
@@ -257,13 +257,55 @@ def cmd_unsave(argv: Sequence[str]) -> int:
 
 # ---------------------------------------------------------------- config
 
-def _show_config() -> None:
+def credit() -> str:
+    return "Built with " + display.c("♥", "red") + " by Subham Divakar"
+
+
+def settings_lines() -> List[str]:
+    """Each setting, whether it's the default or yours, and how to change it."""
     folder, source = resolve_library()
-    papers, n_pdfs, size = folder_stats(folder)
     config = load_config()
-    print(f"Library:   {folder}   (set by: {source})")
-    print(f"PDFs:      {pdf_folder(folder)}" + ("" if config.get("pdfs") else "   (inside the library)"))
-    print(f"Auto-PDF:  {'on' if config.get('auto_pdf') else 'off'}")
+    library_note = {
+        "default": "default · change with: arxivscanner config --library FOLDER",
+        "config": "your setting · back to the default with: arxivscanner config --library default",
+        "--library": "from --library, for this command only",
+        ENV_LIBRARY: f"from the {ENV_LIBRARY} environment variable",
+    }[source]
+    if config.get("pdfs"):
+        pdf_note = "your setting · back to the default with: arxivscanner config --pdfs default"
+    else:
+        pdf_note = "default, inside the library · change with: arxivscanner config --pdfs FOLDER"
+    if config.get("auto_pdf"):
+        auto_note = "on  (your setting · turn off with: arxivscanner config --auto-pdf off)"
+    else:
+        auto_note = "off (default · turn on with: arxivscanner config --auto-pdf on)"
+    return [
+        f"Library:   {folder}",
+        display.c(f"           {library_note}", "dim"),
+        f"PDFs:      {pdf_folder(folder)}",
+        display.c(f"           {pdf_note}", "dim"),
+        f"Auto-PDF:  {auto_note}",
+    ]
+
+
+def print_welcome() -> None:
+    """Shown when interactive mode starts."""
+    print(display.c(f"Welcome to arxivscanner {__version__}", "bold"))
+    print(credit())
+    print()
+    print("Your settings (you can change them any time):")
+    for line in settings_lines():
+        print("  " + line)
+    print(display.c("See your settings any time with: arxivscanner config", "dim"))
+
+
+def _show_config() -> None:
+    folder, _ = resolve_library()
+    papers, n_pdfs, size = folder_stats(folder)
+    print(display.c(f"arxivscanner {__version__}", "bold") + " · " + credit())
+    print()
+    for line in settings_lines():
+        print(line)
     print(f"Settings:  {_library.settings_dir() / 'config.json'}")
     print(f"Saved papers: {papers}   PDFs: {n_pdfs} ({human_size(size)})")
 

@@ -7,7 +7,9 @@
 
 **PyPI:** https://pypi.org/project/arxivscanner/
 
-A command-line tool that fetches and shows new arXiv papers for a chosen **domain** (archive, for example `cs`) and **subdomain** (category, for example `cs.CV`).
+A command-line tool that fetches and shows new arXiv papers for a chosen **domain** (archive, for example `cs`) and **subdomain** (category, for example `cs.CV`), and keeps a reading list of the ones you want.
+
+Built with ♥ by Subham Divakar.
 
 It has no dependencies beyond the Python standard library. It needs Python 3.9 or later and runs on Windows, macOS and Linux; the test suite runs on all three, with Python 3.9 to 3.14, on every push.
 
@@ -57,6 +59,7 @@ Installing adds an `arxivscanner` command. `python -m arxivscanner …` (or `pyt
    ```bash
    arxivscanner
    ```
+   It greets you with your current settings: where saved papers and PDFs go, whether each one is the default or yours, and how to change it (see [See your current settings](#see-your-current-settings)).
 2. **Pick a domain.** Type its number, for example `1` for `cs` (Computer Science).
 3. **Pick one or more subdomains.** Type a number such as `1` (cs.AI), several numbers such as `8,23` (cs.CV and cs.LG), or `0` for the whole domain. You can also type arXiv codes directly, for example `cs.CV cs.LG`.
 4. **Pick a mode.**
@@ -70,6 +73,16 @@ Here's a real session: Computer Science → cs.AI → recent, the last 4 announc
 
 ```
 PS C:\Users\you> arxivscanner
+Welcome to arxivscanner 0.2.0
+Built with ♥ by Subham Divakar
+
+Your settings (you can change them any time):
+  Library:   C:\Users\you\arxivscanner
+             default · change with: arxivscanner config --library FOLDER
+  PDFs:      C:\Users\you\arxivscanner\pdfs
+             default, inside the library · change with: arxivscanner config --pdfs FOLDER
+  Auto-PDF:  off (default · turn on with: arxivscanner config --auto-pdf on)
+See your settings any time with: arxivscanner config
 
 Domains:
     1. cs                     Computer Science
@@ -244,6 +257,36 @@ arxivscanner unsave 2609.30249           # remove a paper
 arxivscanner unsave 2 --tag to-read      # keep the paper, drop the tag
 ```
 
+### See your current settings
+
+Run `arxivscanner config` with no options at any time:
+
+```bash
+arxivscanner config
+```
+
+```
+arxivscanner 0.2.0 · Built with ♥ by Subham Divakar
+
+Library:   D:\Research\arxiv
+           your setting · back to the default with: arxivscanner config --library default
+PDFs:      D:\Research\arxiv\pdfs
+           default, inside the library · change with: arxivscanner config --pdfs FOLDER
+Auto-PDF:  off (default · turn on with: arxivscanner config --auto-pdf on)
+Settings:  C:\Users\you\.arxivscanner\config.json
+Saved papers: 214   PDFs: 187 (1.9 GB)
+```
+
+Each setting says whether it's the default or yours, and the exact command to change it. The same summary appears when interactive mode starts. If you never change anything, these defaults apply:
+
+| Setting | Default | Change it with | Back to the default |
+|---|---|---|---|
+| Library (saved papers) | `~/arxivscanner` (`C:\Users\<you>\arxivscanner` on Windows) | `arxivscanner config --library FOLDER` | `arxivscanner config --library default` |
+| PDFs | a `pdfs` folder inside the library | `arxivscanner config --pdfs FOLDER` | `arxivscanner config --pdfs default` |
+| Auto-PDF | off: PDFs download only with `--pdf` or `--download` | `arxivscanner config --auto-pdf on` | `arxivscanner config --auto-pdf off` |
+
+The settings are stored in `~/.arxivscanner/config.json`.
+
 ### Choosing where saved papers go
 
 Saved papers live in one folder, `~/arxivscanner` by default (`C:\Users\<you>\arxivscanner` on Windows). It holds a plain `library.json` you can back up or sync, and later the downloaded PDFs. If you'll use the tool for a long time, point it at a folder of your choice once:
@@ -251,15 +294,6 @@ Saved papers live in one folder, `~/arxivscanner` by default (`C:\Users\<you>\ar
 ```bash
 arxivscanner config --library "D:/Research/arxiv"    # remembered from now on
 arxivscanner config --pdfs "E:/big-drive/papers"      # optional: PDFs in a separate, bigger folder
-arxivscanner config                                   # show where everything is
-```
-
-```
-Library:   D:\Research\arxiv   (set by: config)
-PDFs:      D:\Research\arxiv\pdfs   (inside the library)
-Auto-PDF:  off
-Settings:  C:\Users\you\.arxivscanner\config.json
-Saved papers: 214   PDFs: 187 (1.9 GB)
 ```
 
 If you already have saved papers when you change the folder, the tool asks whether to move them there, start fresh, or cancel (`--move` or `--no-move` answer up front). It never merges two libraries: if the new folder already has one, nothing is moved. PDF paths are stored relative to the library folder, so you can also move or copy the whole folder yourself, for example into Dropbox or OneDrive, and point `config --library` at it.

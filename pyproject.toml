@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Fetch and display new arXiv papers for a domain or subdomain, from the terminal."
 readme = "README.md"
 requires-python = ">=3.9"
-authors = [{ name = "Subham", email = "shubham.divakar@gmail.com" }]
+authors = [{ name = "Subham Divakar", email = "shubham.divakar@gmail.com" }]
 keywords = ["arxiv", "papers", "research", "rss", "cli"]
 classifiers = [
     "Development Status :: 3 - Alpha",

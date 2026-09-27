@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from . import __version__, display, taxonomy
-from .commands import COMMANDS
+from .commands import COMMANDS, print_welcome
 from .fetchers import ANNOUNCE_TYPES, FetchError, fetch_recent, fetch_today, filter_types, parse_file
 from .filters import filter_keywords, keyword_pattern
 from .library import LibraryError, remember_list
@@ -16,9 +16,21 @@ from .library import LibraryError, remember_list
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="arxivscanner",
-        description="Fetch and display new arXiv papers for a domain (e.g. cs) or subdomain (e.g. cs.CV).",
-        epilog="reading list:  arxivscanner save 3 7 --tag important  |  arxivscanner saved  |  "
-               "arxivscanner unsave 3   (add -h to any of these for help)",
+        description="Fetch and display new arXiv papers for a domain (e.g. cs) or subdomain (e.g. cs.CV).\n"
+                    "Run it with no options for the interactive picker.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""reading list:
+  arxivscanner save 3 7 --tag important   save papers from the last list shown
+  arxivscanner saved                      show your saved papers
+  arxivscanner unsave 3                   remove one
+
+settings:
+  arxivscanner config                     see where saved papers and PDFs are kept
+  arxivscanner config --library FOLDER    change it (default: ~/arxivscanner)
+
+Add -h to any of these for help.
+
+Built with \u2665 by Subham Divakar""",
     )
     p.add_argument("-c", "--cats", nargs="+", metavar="CODE",
                    help="domain(s) or subdomain(s), e.g. cs.CV cs.LG or cs. Omit for the interactive picker.")
@@ -47,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    display.setup_output()   # before anything prints, so help text with ♥ is safe on any console
     if argv and argv[0] in COMMANDS:
         try:
             return COMMANDS[argv[0]](argv[1:])
@@ -89,7 +102,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.", file=sys.stderr)
         return 130
-    except (FetchError, OSError) as e:
+    except (FetchError, LibraryError, OSError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
@@ -155,6 +168,8 @@ def _offer_to_save() -> None:
 def _resolve_target(args: argparse.Namespace):
     if args.cats:
         return args.cats, args.mode, args.days, args.keywords or []
+    print_welcome()
+    print()
     cats = taxonomy.pick_categories()
     mode, days = taxonomy.pick_mode()
     keywords = args.keywords if args.keywords is not None else taxonomy.pick_keywords()
