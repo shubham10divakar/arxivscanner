@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arxivscanner"
+dynamic = ["version"]
+description = "Fetch and display new arXiv papers for a domain or subdomain, from the terminal."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Subham", email = "shubham.divakar@gmail.com" }]
+keywords = ["arxiv", "papers", "research", "rss", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/shubham10divakar/arxivscanner"
+Issues = "https://github.com/shubham10divakar/arxivscanner/issues"
+
+[project.scripts]
+arxivscanner = "arxivscanner.cli:main"
+
+[tool.setuptools]
+packages = ["arxivscanner"]
+
+[tool.setuptools.dynamic]
+version = { attr = "arxivscanner.__version__" }

@@ -12,7 +12,7 @@ from .fetchers import ANNOUNCE_TYPES, FetchError, fetch_recent, fetch_today, fil
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="arxiv_parser",
+        prog="arxivscanner",
         description="Fetch and display new arXiv papers for a domain (e.g. cs) or subdomain (e.g. cs.CV).",
     )
     p.add_argument("-c", "--cats", nargs="+", metavar="CODE",

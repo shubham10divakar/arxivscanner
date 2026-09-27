@@ -6,13 +6,24 @@ It uses only the Python standard library, so there is nothing to `pip install`. 
 
 ## Installation
 
+Install from GitHub with pip:
+
+```bash
+pip install git+https://github.com/shubham10divakar/arxivscanner.git
+arxivscanner --list        # check it works: prints every known domain and subdomain
+```
+
+This installs an `arxivscanner` command. `python -m arxivscanner …` works the same way. Use `python3 -m pip` on macOS or Linux if `pip` points at an older Python.
+
+To work on the code instead, clone the repo and install it in editable mode:
+
 ```bash
 git clone https://github.com/shubham10divakar/arxivscanner.git
 cd arxivscanner
-python run.py --list        # check it works: prints every known domain and subdomain
+pip install -e .
 ```
 
-On macOS or Linux you may need `python3` instead of `python`. `python -m arxiv_parser …` works the same way as `python run.py …`.
+Without installing, `python run.py …` from the repo folder also works.
 
 ## How to use it
 
@@ -21,7 +32,7 @@ On macOS or Linux you may need `python3` instead of `python`. `python -m arxiv_p
 Run the tool with no arguments and answer the prompts:
 
 ```bash
-python run.py
+arxivscanner
 ```
 
 1. **Pick a domain.** Type its number (for example `1` for `cs`).
@@ -33,13 +44,13 @@ python run.py
 Pass `-c` with one or more codes to skip the prompts:
 
 ```bash
-python run.py -c cs.CV                          # today's Computer Vision list
-python run.py -c cs.CV --type new               # only brand-new submissions (no cross-lists or updates)
-python run.py -c cs.CV cs.LG --short            # two subdomains, abstracts trimmed
-python run.py -c cs                             # the whole Computer Science domain
-python run.py -c cs.CV --mode recent --days 3   # everything submitted in the last 3 days
-python run.py -c cs.CV --md cv.md --json cv.json   # also save the results to files
-python run.py --from-file saved_feed.xml        # parse a previously saved RSS/API XML file offline
+arxivscanner -c cs.CV                          # today's Computer Vision list
+arxivscanner -c cs.CV --type new               # only brand-new submissions (no cross-lists or updates)
+arxivscanner -c cs.CV cs.LG --short            # two subdomains, abstracts trimmed
+arxivscanner -c cs                             # the whole Computer Science domain
+arxivscanner -c cs.CV --mode recent --days 3   # everything submitted in the last 3 days
+arxivscanner -c cs.CV --md cv.md --json cv.json   # also save the results to files
+arxivscanner --from-file saved_feed.xml        # parse a previously saved RSS/API XML file offline
 ```
 
 | Flag | Meaning | Default |
@@ -83,7 +94,7 @@ Announcement: Mon, 28 Sep 2026 00:00:00 -0400
 
 ### Codes
 
-Run `python run.py --list` to see all built-in codes. They cover cs, eess, stat, math, q-bio, q-fin, econ, astro-ph, cond-mat, physics, nlin, quant-ph, gr-qc, hep-th and hep-ph. Any other valid arXiv code also works, even if it isn't in the list. Some common ones:
+Run `arxivscanner --list` to see all built-in codes. They cover cs, eess, stat, math, q-bio, q-fin, econ, astro-ph, cond-mat, physics, nlin, quant-ph, gr-qc, hep-th and hep-ph. Any other valid arXiv code also works, even if it isn't in the list. Some common ones:
 
 | Code | Subject |
 |---|---|
@@ -99,20 +110,23 @@ Run `python run.py --list` to see all built-in codes. They cover cs, eess, stat,
 
 The arXiv API sometimes rate-limits in bursts, answering `406` or `429` for a few minutes. The tool retries with back-off for up to about 4 minutes per request and waits 3 seconds between pages, as arXiv's terms ask. If a later page still fails, it keeps the papers it already fetched and prints a warning. If the first request fails, wait a few minutes and run the command again. The RSS feed (`today` mode) is rarely affected.
 
-## Running the tests
+## Development
 
 ```bash
-python -m unittest discover -s tests     # offline, uses the XML fixtures in tests/fixtures
+python -m unittest discover -s tests     # offline tests, using the XML fixtures in tests/fixtures
+python -m build                          # builds dist/arxivscanner-<version>.tar.gz and .whl (pip install build)
 ```
+
+The version lives in `arxivscanner/__init__.py` (`__version__`).
 
 ## Design
 
 ```
-run.py ──► cli.py ──► fetchers.py ──► arXiv (RSS / API)
-             │             │
-             │             └─► models.Paper   (one normalised record)
-             ├─► taxonomy.py  (domain → subdomain names, picker)
-             └─► display.py   (terminal view, JSON / Markdown export)
+arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / API)
+                   │             │
+                   │             └─► models.Paper   (one normalised record)
+                   ├─► taxonomy.py  (domain → subdomain names, picker)
+                   └─► display.py   (terminal view, JSON / Markdown export)
 ```
 
 | Module | Role |

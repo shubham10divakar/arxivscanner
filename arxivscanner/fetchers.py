@@ -22,7 +22,7 @@ from .taxonomy import DOMAINS, is_domain
 
 RSS_BASE = "https://rss.arxiv.org/rss/"
 API_BASE = "https://export.arxiv.org/api/query"
-USER_AGENT = f"arxiv-parser/{__version__} (personal research tool; python-urllib)"
+USER_AGENT = f"arxivscanner/{__version__} (+https://github.com/shubham10divakar/arxivscanner)"
 API_DELAY = 3.0       # seconds between API calls, per arXiv's terms of use
 API_PAGE = 200
 ANNOUNCE_TYPES = ("new", "cross", "replace", "replace-cross")

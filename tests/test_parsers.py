@@ -4,9 +4,9 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from arxiv_parser.display import export_json, export_markdown
-from arxiv_parser.fetchers import build_api_query, build_rss_url, filter_types, parse_api, parse_file, parse_rss
-from arxiv_parser.models import split_id
+from arxivscanner.display import export_json, export_markdown
+from arxivscanner.fetchers import build_api_query, build_rss_url, filter_types, parse_api, parse_file, parse_rss
+from arxivscanner.models import split_id
 
 FIX = Path(__file__).parent / "fixtures"
 
