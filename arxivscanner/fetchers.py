@@ -411,6 +411,29 @@ def fetch_recent(cats: Sequence[str], days: int = 3, max_results: Optional[int] 
     return grouped, meta
 
 
+def fetch_papers(ids: Sequence[str]) -> Tuple[List[Paper], List[str]]:
+    """Look papers up by arXiv id, one OAI-PMH request each. Returns (found, ids not found)."""
+    found: List[Paper] = []
+    missing: List[str] = []
+    for i, arxiv_id in enumerate(ids):
+        if i:
+            time.sleep(API_DELAY)
+        params = {"verb": "GetRecord", "metadataPrefix": "arXivRaw", "identifier": f"oai:arXiv.org:{arxiv_id}"}
+        try:
+            page, _ = parse_oai(http_get(f"{OAI_BASE}?{urllib.parse.urlencode(params)}"))
+        except FetchError as e:
+            if "idDoesNotExist" not in str(e):
+                raise
+            page = []
+        match = [p for p in page if p.arxiv_id == arxiv_id]
+        if match:
+            match[0].announced = None
+            found.append(match[0])
+        else:
+            missing.append(arxiv_id)
+    return found, missing
+
+
 # ---------------------------------------------------------------- helpers
 
 def dedupe(papers: Iterable[Paper]) -> List[Paper]:

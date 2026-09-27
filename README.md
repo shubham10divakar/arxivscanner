@@ -191,6 +191,51 @@ How matching works:
 
 In interactive mode, type the keywords at the `Keywords to filter by` prompt, with quotes around phrases.
 
+### Saving papers (your reading list)
+
+Every list is numbered. Save the papers you want by their numbers, optionally with tags such as `important` or `to-read`:
+
+```bash
+arxivscanner -c cs.CV --mode recent -k attention      # read the list…
+arxivscanner save 1 3 --tag important                 # …save #1 and #3 from it
+arxivscanner save 7 12 --tag to-read
+arxivscanner save 2609.30249                          # or any paper by arXiv id or link
+```
+
+The tool remembers the last list it showed, so the numbers keep working after the command finishes. Saving a paper again just adds the new tags.
+
+See your saved papers at any time, in the same format as the normal output:
+
+```bash
+arxivscanner saved                        # everything, newest first
+arxivscanner saved --tag important        # only papers with this tag
+arxivscanner saved -k diffusion           # keyword search works here too
+arxivscanner saved --md reading-list.md   # export (JSON works too)
+```
+
+```
+Saved papers · C:\Users\you\arxivscanner
+Tags: important (2)  to-read (1)
+3 saved papers
+
+  1. 2609.29940v1
+     Mind What Matters for Reasoning: Aligning Cross-Modal Attention via Selective Probability Mass
+     Concentration
+     Jiaqi Deng, Zonghan Wu, Zhan Heng, Xiaoshui Huang, Huan Huo, Guandong Xu
+     cs.CV, cs.AI · 2026-09-24
+     ★ Saved 27 Sep 2026 · tags: important
+     …
+```
+
+Remove papers, or just a tag, with `unsave`. The numbers come from the last list shown, so `arxivscanner saved` followed by `arxivscanner unsave 2` works as you'd expect:
+
+```bash
+arxivscanner unsave 2609.30249           # remove a paper
+arxivscanner unsave 2 --tag to-read      # keep the paper, drop the tag
+```
+
+**Where saved papers are kept.** In one folder, `~/arxivscanner` by default (`C:\Users\<you>\arxivscanner` on Windows), as a plain `library.json` file you can back up or sync. To use another folder for a single command, add `--library "D:/Research/arxiv"`, or set the `ARXIVSCANNER_LIBRARY` environment variable.
+
 ### Which mode should I use?
 
 | Mode | Source | Answers | Notes |
@@ -246,6 +291,7 @@ arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / OAI-P
                    │             └─► models.Paper   (one normalised record)
                    ├─► taxonomy.py  (domain → subdomain names, picker)
                    ├─► filters.py   (keyword search)
+                   ├─► commands.py  (save / saved / unsave) ─► library.py (reading list)
                    └─► display.py   (terminal view, JSON / Markdown export)
 ```
 
@@ -254,6 +300,8 @@ arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / OAI-P
 | `taxonomy.py` | Built-in map of domains and subdomains, plus the interactive picker. |
 | `models.py` | `Paper` dataclass: id, version, title, authors, abstract, categories, primary category, announce type, dates, comment, journal ref, DOI, abs and PDF URLs. |
 | `fetchers.py` | Two sources, one output type. `fetch_today()` reads the RSS feed. `fetch_recent()` pages through OAI-PMH (`arXivRaw` records) and `group_by_announcement()` rebuilds arXiv's recent listing from them. Also handles retries with back-off, the 3 s delay between calls, de-duplication and type filtering. |
+| `library.py` | The reading list: where the library folder is (flag, environment variable, setting or default), `library.json` with each saved paper's details, tags and save date, and the last list shown. |
+| `commands.py` | The `save`, `saved` and `unsave` commands. |
 | `filters.py` | Keyword search: `keyword_pattern()` builds the case-insensitive, word-start pattern and `filter_keywords()` keeps papers whose title or abstract matches. |
 | `display.py` | Colour terminal output (works in Windows 10+ consoles too), grouped by announcement day in recent mode, plus `export_json` and `export_markdown`. |
 | `cli.py` | Flags and the interactive picker. `--from-file` parses a saved XML file offline. |

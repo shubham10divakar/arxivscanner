@@ -1,0 +1,164 @@
+"""Saved papers (the library): where it lives and what is in it.
+
+The library is one folder, chosen by (most specific first) the --library flag, the
+ARXIVSCANNER_LIBRARY environment variable, the saved setting, or ~/arxivscanner. It holds
+library.json and, later, downloaded PDFs. Settings and the last list shown live in
+~/.arxivscanner, which never moves, so the tool can always find the library.
+"""
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from dataclasses import fields
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+from .models import Paper
+
+ENV_LIBRARY = "ARXIVSCANNER_LIBRARY"
+LIBRARY_FILE = "library.json"
+_PAPER_FIELDS = {f.name for f in fields(Paper)}
+
+
+class LibraryError(RuntimeError):
+    pass
+
+
+def settings_dir() -> Path:
+    return Path.home() / ".arxivscanner"
+
+
+def default_library() -> Path:
+    return Path.home() / "arxivscanner"
+
+
+def _write_json(path: Path, data: object) -> None:
+    """Write atomically, so an interrupted write never leaves a half-written file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
+def _read_json(path: Path) -> Optional[object]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as e:
+        raise LibraryError(f"Could not read {path}: {e}") from e
+
+
+# ---------------------------------------------------------------- settings
+
+def load_config() -> dict:
+    data = _read_json(settings_dir() / "config.json")
+    return data if isinstance(data, dict) else {}
+
+
+def save_config(config: dict) -> None:
+    _write_json(settings_dir() / "config.json", config)
+
+
+def resolve_library(override: Optional[str] = None) -> Tuple[Path, str]:
+    """The library folder and what chose it: "--library", the env variable, "config" or "default"."""
+    if override:
+        return Path(override).expanduser(), "--library"
+    env = os.environ.get(ENV_LIBRARY)
+    if env:
+        return Path(env).expanduser(), ENV_LIBRARY
+    configured = load_config().get("library")
+    if configured:
+        return Path(configured).expanduser(), "config"
+    return default_library(), "default"
+
+
+# ---------------------------------------------------------------- the last list shown
+
+def remember_list(papers: Sequence[Paper]) -> None:
+    """Keep the list just shown, so `save 3 7` can refer to its numbers later."""
+    _write_json(settings_dir() / "last-list.json", {
+        "shown_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "papers": [p.to_dict() for p in papers],
+    })
+
+
+def last_list() -> List[Paper]:
+    data = _read_json(settings_dir() / "last-list.json")
+    if not isinstance(data, dict):
+        return []
+    return [paper_from_dict(d) for d in data.get("papers", [])]
+
+
+def paper_from_dict(d: dict) -> Paper:
+    return Paper(**{k: v for k, v in d.items() if k in _PAPER_FIELDS})
+
+
+# ---------------------------------------------------------------- the library itself
+
+class Library:
+    """library.json: one entry per saved paper, with its details, tags and save date."""
+
+    def __init__(self, folder: Path):
+        self.folder = Path(folder)
+        self.file = self.folder / LIBRARY_FILE
+        self._entries: Dict[str, dict] = {}
+        data = _read_json(self.file)
+        if isinstance(data, dict):
+            for entry in data.get("papers", []):
+                if entry.get("arxiv_id"):
+                    self._entries[entry["arxiv_id"]] = entry
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def __contains__(self, arxiv_id: str) -> bool:
+        return arxiv_id in self._entries
+
+    def get(self, arxiv_id: str) -> Optional[dict]:
+        return self._entries.get(arxiv_id)
+
+    def add(self, paper: Paper, tags: Iterable[str] = ()) -> bool:
+        """Save a paper (or add tags to one already saved). True if it was new."""
+        existing = self._entries.get(paper.arxiv_id)
+        entry = paper.to_dict()
+        entry.pop("announced", None)
+        entry.pop("announce_type", None)
+        if existing:
+            entry.update({k: existing[k] for k in ("saved_at", "tags", "pdf") if k in existing})
+        else:
+            entry.update(saved_at=datetime.now(timezone.utc).isoformat(timespec="seconds"), tags=[], pdf=None)
+        entry["tags"] = sorted(set(entry.get("tags") or []) | {t.strip() for t in tags if t.strip()})
+        self._entries[paper.arxiv_id] = entry
+        return existing is None
+
+    def remove(self, arxiv_id: str) -> Optional[dict]:
+        return self._entries.pop(arxiv_id, None)
+
+    def untag(self, arxiv_id: str, tags: Iterable[str]) -> None:
+        entry = self._entries[arxiv_id]
+        entry["tags"] = [t for t in entry.get("tags", []) if t not in set(tags)]
+
+    def entries(self, tags: Sequence[str] = ()) -> List[dict]:
+        """Saved papers, newest first; with `tags`, only those carrying any of them."""
+        wanted = set(tags)
+        chosen = [e for e in self._entries.values() if not wanted or wanted & set(e.get("tags", []))]
+        return sorted(chosen, key=lambda e: e.get("saved_at", ""), reverse=True)
+
+    def tag_counts(self) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for e in self._entries.values():
+            for t in e.get("tags", []):
+                counts[t] = counts.get(t, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+    def save(self) -> None:
+        _write_json(self.file, {"version": 1, "papers": self.entries()})

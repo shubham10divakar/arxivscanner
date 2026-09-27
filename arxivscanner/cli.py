@@ -7,14 +7,18 @@ from pathlib import Path
 from typing import List, Optional
 
 from . import __version__, display, taxonomy
+from .commands import COMMANDS
 from .fetchers import ANNOUNCE_TYPES, FetchError, fetch_recent, fetch_today, filter_types, parse_file
 from .filters import filter_keywords, keyword_pattern
+from .library import LibraryError, remember_list
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="arxivscanner",
         description="Fetch and display new arXiv papers for a domain (e.g. cs) or subdomain (e.g. cs.CV).",
+        epilog="reading list:  arxivscanner save 3 7 --tag important  |  arxivscanner saved  |  "
+               "arxivscanner unsave 3   (add -h to any of these for help)",
     )
     p.add_argument("-c", "--cats", nargs="+", metavar="CODE",
                    help="domain(s) or subdomain(s), e.g. cs.CV cs.LG or cs. Omit for the interactive picker.")
@@ -42,6 +46,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in COMMANDS:
+        try:
+            return COMMANDS[argv[0]](argv[1:])
+        except (KeyboardInterrupt, EOFError):
+            print("\nCancelled.", file=sys.stderr)
+            return 130
+        except (LibraryError, FetchError, OSError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
     args = build_parser().parse_args(argv)
     display.setup_output(color=False if args.no_color else None)
 
@@ -99,6 +113,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("No papers in these announcements. Try a larger --days, or check the category code (--list).")
         return 0
     display.print_papers(papers, short=args.short, highlight=pattern)
+    try:
+        remember_list(papers)
+        print(display.c("Save papers from this list with: arxivscanner save <numbers> [--tag important]", "dim"),
+              file=sys.stderr)
+    except (LibraryError, OSError) as e:
+        print(f"  ! Could not remember this list for `arxivscanner save`: {e}", file=sys.stderr)
 
     title = f"arXiv {' + '.join(cats)} — {meta.get('pub_date') or meta.get('end', '')[:10] or mode}"
     if keywords:

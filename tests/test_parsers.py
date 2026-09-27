@@ -1,12 +1,14 @@
 import io
 import json
+import os
+import shutil
 import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
 from unittest import mock
 
-from arxivscanner import display, fetchers, taxonomy
+from arxivscanner import display, fetchers, library, taxonomy
 from arxivscanner.cli import main
 from arxivscanner.display import export_json, export_markdown
 from arxivscanner.filters import filter_keywords, keyword_pattern
@@ -15,6 +17,25 @@ from arxivscanner.fetchers import (announcement_days, build_rss_url, filter_type
 from arxivscanner.models import Paper, split_id
 
 FIX = Path(__file__).parent / "fixtures"
+
+# Keep every test away from the real ~/.arxivscanner and ~/arxivscanner.
+_home = tempfile.TemporaryDirectory()
+_patches = [
+    mock.patch.object(library, "settings_dir", lambda: Path(_home.name) / ".arxivscanner"),
+    mock.patch.object(library, "default_library", lambda: Path(_home.name) / "arxivscanner"),
+    mock.patch.dict(os.environ, {library.ENV_LIBRARY: ""}),
+]
+
+
+def setUpModule():
+    for p in _patches:
+        p.start()
+
+
+def tearDownModule():
+    for p in reversed(_patches):
+        p.stop()
+    _home.cleanup()
 
 
 class TestParsers(unittest.TestCase):
@@ -211,6 +232,99 @@ class TestKeywords(unittest.TestCase):
             self.assertEqual(taxonomy.pick_keywords(), [])
         with mock.patch("builtins.input", return_value='unbalanced "quote'):
             self.assertEqual(taxonomy.pick_keywords(), ["unbalanced", "quote"])
+
+
+def run_cli(*argv):
+    """Run the command line; return (exit code, stdout, stderr)."""
+    out, err = io.StringIO(), io.StringIO()
+    with mock.patch("sys.stdout", out), mock.patch("sys.stderr", err):
+        code = main(list(argv))
+    return code, out.getvalue(), err.getvalue()
+
+
+class TestLibrary(unittest.TestCase):
+    def setUp(self):
+        home = Path(_home.name)
+        shutil.rmtree(home, ignore_errors=True)
+        home.mkdir()
+        os.environ[library.ENV_LIBRARY] = ""
+        self.default = home / "arxivscanner"
+
+    def test_resolve_library(self):
+        self.assertEqual(library.resolve_library(), (self.default, "default"))
+        library.save_config({"library": str(Path(_home.name) / "research")})
+        self.assertEqual(library.resolve_library()[1], "config")
+        os.environ[library.ENV_LIBRARY] = str(Path(_home.name) / "from-env")
+        self.assertEqual(library.resolve_library(), (Path(_home.name) / "from-env", library.ENV_LIBRARY))
+        self.assertEqual(library.resolve_library("elsewhere"), (Path("elsewhere"), "--library"))
+
+    def test_save_saved_unsave(self):
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")      # shows 3 papers
+        code, out, err = run_cli("save", "1", "3", "--tag", "important")
+        self.assertEqual(code, 0, err)
+        self.assertIn("2609.00001", out)
+        self.assertIn("2608.12345", out)
+        lib = library.Library(self.default)
+        self.assertEqual(len(lib), 2)
+        self.assertEqual(lib.get("2609.00001")["tags"], ["important"])
+        self.assertTrue((self.default / "library.json").exists())
+
+        # Saving again adds tags and keeps the save date.
+        first_saved = lib.get("2609.00001")["saved_at"]
+        run_cli("save", "1", "--tag", "to-read")
+        lib = library.Library(self.default)
+        self.assertEqual(lib.get("2609.00001")["tags"], ["important", "to-read"])
+        self.assertEqual(lib.get("2609.00001")["saved_at"], first_saved)
+
+        code, out, _ = run_cli("saved", "--no-color")
+        self.assertIn("2 saved papers", out)
+        self.assertIn("Tags: important (2)  to-read (1)", out)
+        self.assertIn("tags: important, to-read", out)
+
+        code, out, _ = run_cli("saved", "--tag", "to-read", "--no-color")
+        self.assertIn("1 of 2 saved papers tagged to-read", out)
+        self.assertNotIn("2608.12345", out)
+
+        code, out, _ = run_cli("saved", "-k", "looped", "--no-color")
+        self.assertIn("1 of 2 saved papers mentioning \"looped\"", out)
+
+        # `saved` becomes the last list, so its numbers work for unsave.
+        run_cli("saved", "--no-color")
+        code, out, _ = run_cli("unsave", "1", "--tag", "to-read")
+        self.assertEqual(library.Library(self.default).get(
+            library.last_list()[0].arxiv_id)["tags"], ["important"])
+        code, out, _ = run_cli("unsave", "2608.12345")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(library.Library(self.default)), 1)
+
+    def test_save_by_id_looks_up_arxiv(self):
+        oai = (FIX / "sample_oai.xml").read_bytes()
+        with mock.patch.object(fetchers, "http_get", lambda url, *a, **kw: oai),                 mock.patch.object(fetchers.time, "sleep"):
+            code, out, err = run_cli("save", "https://arxiv.org/abs/2609.30020v1", "2609.99999")
+        self.assertEqual(code, 1)                       # one of the two wasn't found
+        self.assertIn("2609.30020", out)
+        self.assertIn("2609.99999: not found on arXiv", err)
+        self.assertIn("2609.30020", library.Library(self.default))
+
+    def test_bad_references(self):
+        code, _, err = run_cli("save", "3")
+        self.assertEqual(code, 1)
+        self.assertIn("no list to pick from yet", err)
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        code, _, err = run_cli("save", "9", "hello")
+        self.assertIn("#9: the last list had 3 papers", err)
+        self.assertIn("hello: not a list number or an arXiv id", err)
+        code, _, err = run_cli("unsave", "2")
+        self.assertIn("isn't in your library", err)
+
+    def test_library_flag_and_empty_library(self):
+        other = Path(_home.name) / "other"
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        run_cli("save", "2", "--library", str(other))
+        self.assertEqual(len(library.Library(other)), 1)
+        self.assertEqual(len(library.Library(self.default)), 0)
+        code, out, _ = run_cli("saved", "--no-color")
+        self.assertIn("Your library is empty", out)
 
 
 if __name__ == "__main__":
