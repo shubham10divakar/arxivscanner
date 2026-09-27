@@ -296,6 +296,8 @@ arxivscanner config --library "D:/Research/arxiv"    # remembered from now on
 arxivscanner config --pdfs "E:/big-drive/papers"      # optional: PDFs in a separate, bigger folder
 ```
 
+On Windows PowerShell, leave the backslash off the end of a quoted folder (`'.\My papers'`, not `'.\My papers\'`). PowerShell turns the trailing backslash into a stray quote. arxivscanner removes a stray quote at the end of a folder, but stops with an error if one merged the next options into the folder.
+
 If you already have saved papers when you change the folder, the tool asks whether to move them there, start fresh, or cancel (`--move` or `--no-move` answer up front). It never merges two libraries: if the new folder already has one, nothing is moved. PDF paths are stored relative to the library folder, so you can also move or copy the whole folder yourself, for example into Dropbox or OneDrive, and point `config --library` at it.
 
 | Way to choose the folder | Example | Use it for |

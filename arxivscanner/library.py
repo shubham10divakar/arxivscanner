@@ -70,23 +70,40 @@ def save_config(config: dict) -> None:
     _write_json(settings_dir() / "config.json", config)
 
 
+def folder_path(text: str) -> Path:
+    """A folder typed by the user (or saved from one).
+
+    Windows PowerShell 5 passes '.\\My papers\\' to programs as ".\\My papers\\" and the trailing
+    backslash escapes the closing quote, so Python sees `.\\My papers"`. No Windows path can hold
+    a quote, so a trailing one is dropped; one anywhere else means later arguments were swallowed.
+    """
+    text = text.strip()
+    if os.name == "nt":
+        text = text.rstrip('"').strip()
+        if '"' in text:
+            raise LibraryError(f"This folder has a stray quote in it: {text}\n"
+                               "A quoted folder ending in a backslash confuses Windows PowerShell; "
+                               "leave the last backslash off, e.g. '.\\My papers'")
+    return Path(text).expanduser()
+
+
 def resolve_library(override: Optional[str] = None) -> Tuple[Path, str]:
     """The library folder and what chose it: "--library", the env variable, "config" or "default"."""
     if override:
-        return Path(override).expanduser(), "--library"
+        return folder_path(override), "--library"
     env = os.environ.get(ENV_LIBRARY)
     if env:
-        return Path(env).expanduser(), ENV_LIBRARY
+        return folder_path(env), ENV_LIBRARY
     configured = load_config().get("library")
     if configured:
-        return Path(configured).expanduser(), "config"
+        return folder_path(configured), "config"
     return default_library(), "default"
 
 
 def pdf_folder(library_folder: Path) -> Path:
     """Where PDFs go: the configured PDF folder, or `pdfs` inside the library folder."""
     configured = load_config().get("pdfs")
-    return Path(configured).expanduser() if configured else Path(library_folder) / "pdfs"
+    return folder_path(configured) if configured else Path(library_folder) / "pdfs"
 
 
 def folder_stats(library_folder: Path) -> Tuple[int, int, int]:

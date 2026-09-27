@@ -355,8 +355,8 @@ def cmd_config(argv: Sequence[str]) -> int:
 
     config = load_config()
     if args.library is not None:
-        old = Path(config["library"]).expanduser() if config.get("library") else _library.default_library()
-        new = _library.default_library() if args.library == "default" else Path(args.library).expanduser().resolve()
+        old = _library.folder_path(config["library"]) if config.get("library") else _library.default_library()
+        new = _library.default_library() if args.library == "default" else _library.folder_path(args.library).resolve()
         if new.resolve() != old.resolve():
             papers, n_pdfs, size = folder_stats(old)
             choice = "fresh"
@@ -375,9 +375,9 @@ def cmd_config(argv: Sequence[str]) -> int:
             config["library"] = str(new)
         print(f"Library folder: {new}")
     if args.pdfs is not None:
-        library_folder = Path(config["library"]).expanduser() if config.get("library") else _library.default_library()
+        library_folder = _library.folder_path(config["library"]) if config.get("library") else _library.default_library()
         old_dir = pdf_folder(library_folder)
-        new_dir = library_folder / "pdfs" if args.pdfs == "default" else Path(args.pdfs).expanduser().resolve()
+        new_dir = library_folder / "pdfs" if args.pdfs == "default" else _library.folder_path(args.pdfs).resolve()
         if new_dir.resolve() != old_dir.resolve():
             here = Library(library_folder).pdfs_in(old_dir)
             if here:

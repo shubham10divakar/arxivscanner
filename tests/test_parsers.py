@@ -258,6 +258,17 @@ class TestLibrary(unittest.TestCase):
         self.assertEqual(library.resolve_library(), (Path(_home.name) / "from-env", library.ENV_LIBRARY))
         self.assertEqual(library.resolve_library("elsewhere"), (Path("elsewhere"), "--library"))
 
+    @unittest.skipUnless(os.name == "nt", "Windows PowerShell quoting")
+    def test_folder_path_powershell_quote(self):
+        # PowerShell 5 turns '.\My papers\' into `.\My papers"`
+        self.assertEqual(library.folder_path('D:\\My papers"'), Path("D:\\My papers"))
+        with self.assertRaises(library.LibraryError):
+            library.folder_path('D:\\My papers" --auto-pdf on')
+        # a setting saved before the fix heals itself
+        library.save_config({"library": 'D:\\My papers"', "pdfs": 'D:\\My papers\\pdfs"'})
+        self.assertEqual(library.resolve_library()[0], Path("D:\\My papers"))
+        self.assertEqual(library.pdf_folder(Path("x")), Path("D:\\My papers\\pdfs"))
+
     def test_save_saved_unsave(self):
         run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")      # shows 3 papers
         code, out, err = run_cli("save", "1", "3", "--tag", "important")
