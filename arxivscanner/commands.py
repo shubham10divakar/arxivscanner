@@ -91,6 +91,10 @@ def download_pdfs(library: Library, ids: Sequence[str]) -> List[str]:
     return errors
 
 
+def _papers(n: int) -> str:
+    return f"{n} paper{'' if n == 1 else 's'}"
+
+
 def _report_errors(errors: Sequence[str]) -> None:
     for e in errors:
         print(f"  ! {e}", file=sys.stderr)
@@ -134,7 +138,7 @@ def cmd_save(argv: Sequence[str]) -> int:
         if args.pdf or load_config().get("auto_pdf"):
             errors += download_pdfs(library, [paper.arxiv_id for _, paper in found])
             library.save()
-        print(display.c(f"{len(library)} papers in your library. See them with: arxivscanner saved", "dim"))
+        print(display.c(f"{_papers(len(library))} in your library. See them with: arxivscanner saved", "dim"))
     _report_errors(errors)
     return 1 if errors else 0
 
@@ -250,7 +254,7 @@ def cmd_unsave(argv: Sequence[str]) -> int:
         changed = True
     if changed:
         library.save()
-        print(display.c(f"{len(library)} papers left in {folder}", "dim"))
+        print(display.c(f"{_papers(len(library))} left in {folder}", "dim"))
     _report_errors(errors)
     return 1 if errors else 0
 
