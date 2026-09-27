@@ -65,6 +65,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         keywords = args.keywords or []
+        interactive = not args.cats and not args.from_file
         if args.from_file:
             papers, meta = parse_file(Path(args.from_file).read_bytes())
             cats = args.cats or sorted({p.primary_category for p in papers if p.primary_category})
@@ -115,8 +116,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     display.print_papers(papers, short=args.short, highlight=pattern)
     try:
         remember_list(papers)
-        print(display.c("Save papers from this list with: arxivscanner save <numbers> [--tag important]", "dim"),
-              file=sys.stderr)
+        if not interactive:
+            print(display.c("Save papers from this list with: arxivscanner save <numbers> [--tag important]", "dim"),
+                  file=sys.stderr)
     except (LibraryError, OSError) as e:
         print(f"  ! Could not remember this list for `arxivscanner save`: {e}", file=sys.stderr)
 
@@ -130,7 +132,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.md:
         display.export_markdown(papers, args.md, title=title, highlight=pattern)
         print(f"Saved Markdown → {args.md}", file=sys.stderr)
+    if interactive:
+        _offer_to_save()
     return 0
+
+
+def _offer_to_save() -> None:
+    """Interactive mode: save papers from the list just shown, until the user presses Enter."""
+    try:
+        while True:
+            picked = taxonomy.pick_to_save()
+            if picked is None:
+                return
+            numbers, tags = picked
+            COMMANDS["save"](numbers + (["--tag", *tags] if tags else []))
+    except (KeyboardInterrupt, EOFError):
+        print()
+    except (LibraryError, FetchError, OSError) as e:
+        print(f"Error: {e}", file=sys.stderr)
 
 
 def _resolve_target(args: argparse.Namespace):

@@ -262,3 +262,17 @@ def pick_keywords() -> List[str]:
         return shlex.split(raw)
     except ValueError:  # unbalanced quote
         return raw.replace('"', " ").split()
+
+
+def pick_to_save() -> Optional[Tuple[List[str], List[str]]]:
+    """Ask which papers from the list to save, and with which tags. None when the user is done."""
+    while True:
+        raw = input("\nSave papers? Type their numbers (e.g. 3 7 12), or press Enter to finish: ").strip()
+        if not raw:
+            return None
+        numbers = re.split(r"[,\s]+", raw)
+        if all(n.isdigit() for n in numbers):
+            break
+        print("  Numbers from the list only, e.g. 3 7 12.")
+    tags = input("Tags for them (e.g. important to-read; Enter for none): ").strip()
+    return numbers, [t for t in re.split(r"[,\s]+", tags) if t]

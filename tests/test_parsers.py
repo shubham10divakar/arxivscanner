@@ -475,6 +475,32 @@ class TestLibrary(unittest.TestCase):
         self.assertEqual(library.Library(self.default).pdf_path("2609.00002").parent, big.resolve())
         self.assertEqual(len(list(big.glob("*.pdf"))), 2)
 
+    def test_interactive_save_prompt(self):
+        rss = parse_rss((FIX / "sample_rss.xml").read_bytes())
+        answers = iter(["1 2", "important", "x", "3", "", ""])   # save #1 #2 tagged; bad input; save #3; finish
+        with mock.patch.object(taxonomy, "pick_categories", return_value=["cs.CV"]), \
+                mock.patch.object(taxonomy, "pick_mode", return_value=("today", 1)), \
+                mock.patch.object(taxonomy, "pick_keywords", return_value=[]), \
+                mock.patch("arxivscanner.cli.fetch_today", return_value=rss), \
+                mock.patch("builtins.input", lambda prompt="": next(answers)):
+            code, out, err = run_cli("--no-color")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Numbers from the list only", out)
+        lib = library.Library(self.default)
+        self.assertEqual(len(lib), 3)
+        self.assertEqual(lib.get("2609.00001")["tags"], ["important"])
+        self.assertEqual(lib.get("2608.12345")["tags"], [])
+        self.assertNotIn("arxivscanner save <numbers>", err)     # no tip: the prompt replaces it
+
+        # Pressing Enter straight away saves nothing.
+        with mock.patch.object(taxonomy, "pick_categories", return_value=["cs.CV"]), \
+                mock.patch.object(taxonomy, "pick_mode", return_value=("today", 1)), \
+                mock.patch.object(taxonomy, "pick_keywords", return_value=[]), \
+                mock.patch("arxivscanner.cli.fetch_today", return_value=rss), \
+                mock.patch("builtins.input", return_value=""):
+            run_cli("--no-color")
+        self.assertEqual(len(library.Library(self.default)), 3)
+
     def test_library_flag_and_empty_library(self):
         other = Path(_home.name) / "other"
         run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")

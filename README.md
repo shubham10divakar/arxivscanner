@@ -64,6 +64,7 @@ Installing adds an `arxivscanner` command. `python -m arxivscanner …` (or `pyt
    - `2` (recent) shows the last N announcements, grouped by day, the same papers as arXiv's "recent" page. It asks for N; press Enter to accept the default of 3.
 5. **Optionally search by keyword.** Type one or more words to keep only papers whose title or abstract mentions them, for example `attention "world model"` (quotes group a phrase). Press Enter to skip and see everything.
 6. **Read the results.** Each paper shows its id, title, authors, categories, first-submission date and comments, the abstract, and links to the abstract page and the PDF. In recent mode each day starts with a header line, like the day headings on arXiv's page. Keyword matches are highlighted.
+7. **Save the ones you want.** Type their numbers, then optional tags such as `important`. It asks again until you press Enter. See them later with `arxivscanner saved` (see [Saving papers](#saving-papers-your-reading-list)).
 
 Here's a real session: Computer Science → cs.AI → recent, the last 4 announcements. Long lists are shortened with `…`.
 
@@ -124,6 +125,15 @@ Last 4 announcements: Tue, 22 Sep 2026 → Fri, 25 Sep 2026
   …
 ── Tue, 22 Sep 2026 · 384 papers (111 new, 273 cross-lists) ────────────────────
   …
+
+Save papers? Type their numbers (e.g. 3 7 12), or press Enter to finish: 1 5
+Tags for them (e.g. important to-read; Enter for none): important
+Saved to C:\Users\you\arxivscanner
+    #1  2609.30264  AD-WM: Action-Discriminative World Models for…  [important]
+    #5  2609.30186  Jev-Mobile: Jev as an Executor for Mobile GUI Agents  [important]
+2 papers in your library. See them with: arxivscanner saved
+
+Save papers? Type their numbers (e.g. 3 7 12), or press Enter to finish:
 ```
 
 Abstracts are printed in full. Add `--short` to trim each one to about 300 characters, or `--md papers.md` to save the list as a Markdown reading list.
