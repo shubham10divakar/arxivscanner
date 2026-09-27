@@ -5,13 +5,13 @@
   <ListRecords>
     <record>
       <header>
-        <identifier>oai:arXiv.org:2609.00020</identifier>
-        <datestamp>2026-09-26</datestamp>
+        <identifier>oai:arXiv.org:2609.30020</identifier>
+        <datestamp>2026-09-25</datestamp>
         <setSpec>cs:cs:CV</setSpec>
       </header>
       <metadata>
         <arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/">
-          <id>2609.00020</id>
+          <id>2609.30020</id>
           <submitter>Grace Hopper</submitter>
           <version version="v1">
             <date>Fri, 25 Sep 2026 14:02:11 GMT</date>
@@ -49,7 +49,7 @@
     <record>
       <header>
         <identifier>oai:arXiv.org:2303.15533</identifier>
-        <datestamp>2026-09-26</datestamp>
+        <datestamp>2026-09-25</datestamp>
         <setSpec>cs:cs:CV</setSpec>
       </header>
       <metadata>
@@ -67,7 +67,7 @@
     <record>
       <header status="deleted">
         <identifier>oai:arXiv.org:2609.00099</identifier>
-        <datestamp>2026-09-26</datestamp>
+        <datestamp>2026-09-25</datestamp>
       </header>
     </record>
     <resumptionToken cursor="0" completeListSize="4"></resumptionToken>

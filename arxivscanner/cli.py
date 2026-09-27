@@ -18,15 +18,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-c", "--cats", nargs="+", metavar="CODE",
                    help="domain(s) or subdomain(s), e.g. cs.CV cs.LG or cs. Omit for the interactive picker.")
     p.add_argument("--mode", choices=("today", "recent"), default="today",
-                   help="today = today's announcement (RSS, default); recent = submitted in the last N days")
-    p.add_argument("--days", type=int, default=3, help="window for --mode recent (default 3)")
-    p.add_argument("--max", type=int, default=500, dest="max_results",
-                   help="cap on papers for --mode recent (default 500)")
-    p.add_argument("--source", choices=("auto", "api", "oai"), default="auto",
-                   help="where --mode recent reads from: the search API, OAI-PMH, or auto "
-                        "(API, falling back to OAI-PMH when the API refuses; default)")
+                   help="today = today's announcement feed (default); "
+                        "recent = the last N announcements, like arXiv's 'recent' page")
+    p.add_argument("--days", type=int, default=3,
+                   help="number of announcement days for --mode recent (default 3)")
+    p.add_argument("--max", type=int, default=None, dest="max_results",
+                   help="cap on papers for --mode recent (default: no cap)")
     p.add_argument("--type", nargs="+", choices=ANNOUNCE_TYPES, dest="types",
-                   help="keep only these announce types (today mode), e.g. --type new cross")
+                   help="keep only these announce types, e.g. --type new "
+                        "(recent mode has new and cross; today mode also has replace, replace-cross)")
     p.add_argument("--short", action="store_true", help="trim abstracts")
     p.add_argument("--json", metavar="FILE", help="also save results as JSON")
     p.add_argument("--md", metavar="FILE", help="also save results as Markdown")
@@ -60,12 +60,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(f"Fetching today's announcement for {' + '.join(cats)} …", file=sys.stderr)
                 papers, meta = fetch_today(cats)
             else:
-                if args.days < 1:
+                if days < 1:
                     print("--days must be at least 1", file=sys.stderr)
                     return 2
-                src = {"auto": "the arXiv API", "api": "the arXiv API", "oai": "arXiv OAI-PMH"}[args.source]
-                print(f"Querying {src} for {' + '.join(cats)}, last {days} day(s) …", file=sys.stderr)
-                papers, meta = fetch_recent(cats, days=days, max_results=args.max_results, source=args.source)
+                print(f"Fetching the last {days} announcement(s) for {' + '.join(cats)} from arXiv OAI-PMH …",
+                      file=sys.stderr)
+                papers, meta = fetch_recent(cats, days=days, max_results=args.max_results)
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.", file=sys.stderr)
         return 130
@@ -80,11 +80,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not papers:
         if mode == "today":
             print("No papers in this feed. arXiv does not announce on Friday/Saturday nights (US Eastern),\n"
-                  "so weekend feeds are empty; try --mode recent --days 3.")
+                  "so weekend feeds are empty; try --mode recent --days 1 for the latest announcement.")
         else:
-            print("No papers found. Papers only become visible once arXiv announces them (Sunday to Thursday,\n"
-                  "20:00 US Eastern), so weekend submissions appear after Sunday's announcement.\n"
-                  "Try a larger --days.")
+            print("No papers in these announcements. Try a larger --days, or check the category code (--list).")
         return 0
     display.print_papers(papers, short=args.short)
 

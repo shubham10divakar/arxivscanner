@@ -7,6 +7,7 @@ import shutil
 import sys
 import textwrap
 from collections import Counter
+from datetime import date
 from pathlib import Path
 from typing import List, Optional, Sequence
 
@@ -74,19 +75,37 @@ def print_header(cats: Sequence[str], mode: str, meta: dict, papers: List[Paper]
     if mode == "today":
         when = meta.get("pub_date") or "unknown date"
         print(c(f"Announcement: {when}", "dim"))
-    elif mode == "recent":
-        print(c(f"Submitted {meta.get('start', '')[:10]} → {meta.get('end', '')[:10]} (UTC); "
-                f"{meta.get('total', 0)} matched via {'OAI-PMH' if meta.get('source') == 'oai' else 'the API'}", "dim"))
+    elif mode == "recent" and meta.get("days"):
+        n = len(meta["days"])
+        span = f"{_day(meta['start'])} → {_day(meta['end'])}" if n > 1 else _day(meta["end"])
+        print(c(f"Last {n} announcement{'s' if n > 1 else ''}: {span}", "dim"))
     if meta.get("warning"):
         print(c(f"Warning: {meta['warning']}", "yellow"))
     counts = Counter(p.announce_type for p in papers if p.announce_type)
-    summary = "  ".join(c(f"{k}: {v}", TYPE_COLOR.get(k, "bold")) for k, v in counts.most_common())
+    order = list(TYPE_COLOR) + sorted(set(counts) - set(TYPE_COLOR))
+    summary = "  ".join(c(f"{k}: {counts[k]}", TYPE_COLOR.get(k, "bold")) for k in order if counts[k])
     print(f"{len(papers)} papers  {summary}\n")
+
+
+def _day(iso: str) -> str:
+    """2026-09-25 -> Fri, 25 Sep 2026 (arXiv's listing style)."""
+    return date.fromisoformat(iso[:10]).strftime("%a, %d %b %Y")
+
+
+def _day_summary(papers: List[Paper], iso: str) -> str:
+    new = sum(1 for p in papers if p.announced == iso and p.announce_type == "new")
+    cross = sum(1 for p in papers if p.announced == iso and p.announce_type == "cross")
+    return f"{new + cross} papers ({new} new, {cross} cross-lists)"
 
 
 def print_papers(papers: List[Paper], short: bool = False) -> None:
     w = _width()
+    day = None
     for i, p in enumerate(papers, 1):
+        if p.announced and p.announced != day:
+            day = p.announced
+            print(c(f"── {_day(day)} · {_day_summary(papers, day)} " + "─" * 20, "bold", "magenta"))
+            print()
         tag = f"[{p.announce_type}]" if p.announce_type else ""
         head = f"{i:>3}. {p.arxiv_id}{p.version} "
         print(c(head, "bold") + c(tag, TYPE_COLOR.get(p.announce_type, "dim")))
@@ -115,9 +134,14 @@ def export_json(papers: List[Paper], path: str, meta: Optional[dict] = None) -> 
 
 def export_markdown(papers: List[Paper], path: str, title: str = "arXiv papers") -> None:
     out = [f"# {title}", "", f"{len(papers)} papers", ""]
+    day = None
     for i, p in enumerate(papers, 1):
+        if p.announced and p.announced != day:
+            day = p.announced
+            out.append(f"## {_day(day)} · {_day_summary(papers, day)}")
+            out.append("")
         tag = f" `{p.announce_type}`" if p.announce_type else ""
-        out.append(f"## {i}. {p.title}")
+        out.append(f"{'###' if p.announced else '##'} {i}. {p.title}")
         out.append("")
         out.append(f"[{p.arxiv_id}{p.version}]({p.abs_url}) · [PDF]({p.pdf_url}){tag} · {', '.join(p.categories)}")
         out.append("")

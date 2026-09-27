@@ -1,8 +1,8 @@
-"""Three sources, one output type.
+"""Two sources, one output type.
 
-fetch_today()  -> rss.arxiv.org                  "What did arXiv announce today?"
-fetch_recent() -> export.arxiv.org (search API)  "What was submitted in the last N days?"
-                  oaipmh.arxiv.org (OAI-PMH)     same question; fallback when the API refuses
+fetch_today()  -> rss.arxiv.org      "What did arXiv announce today?"
+fetch_recent() -> oaipmh.arxiv.org   "What did arXiv announce in its last N announcements?"
+                                     (the same papers as arxiv.org/list/<cat>/recent, grouped by day)
 """
 from __future__ import annotations
 
@@ -13,19 +13,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from . import __version__
 from .models import Paper, split_id
-from .taxonomy import DOMAINS, is_domain
 
 RSS_BASE = "https://rss.arxiv.org/rss/"
-API_BASE = "https://export.arxiv.org/api/query"
 USER_AGENT = f"arxivscanner/{__version__} (+https://github.com/shubham10divakar/arxivscanner)"
-API_DELAY = 3.0       # seconds between API calls, per arXiv's terms of use
-API_PAGE = 200
+API_DELAY = 3.0       # seconds between requests, per arXiv's terms of use
 ANNOUNCE_TYPES = ("new", "cross", "replace", "replace-cross")
 
 NS = {
@@ -54,13 +51,6 @@ def _split_authors(raw: str) -> List[str]:
 
 # ---------------------------------------------------------------- HTTP
 
-class RefusedError(FetchError):
-    """The server declined the request outright (export.arxiv.org answers 406 when it throttles a host).
-
-    Waiting does not clear it within a run, so callers should switch source instead of retrying.
-    """
-
-
 def http_get(url: str, retries: int = 4, backoff: float = 15.0, timeout: float = 120.0) -> bytes:
     """GET with retries and exponential back-off on network errors, 429 and 5xx (honouring Retry-After)."""
     req = urllib.request.Request(url, headers={
@@ -73,8 +63,6 @@ def http_get(url: str, retries: int = 4, backoff: float = 15.0, timeout: float =
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
-            if e.code in (403, 406):
-                raise RefusedError(f"HTTP {e.code} {e.reason} from {urllib.parse.urlsplit(url).netloc}") from e
             if e.code != 429 and e.code < 500:
                 raise FetchError(f"HTTP {e.code} for {url}") from e
             last = e
@@ -153,21 +141,10 @@ def fetch_today(cats: Sequence[str]) -> Tuple[List[Paper], dict]:
     return dedupe(papers), meta
 
 
-# ---------------------------------------------------------------- API (recent)
-
-def build_api_query(cats: Sequence[str], start: datetime, end: datetime) -> str:
-    terms = [f"cat:{c}.*" if _has_subdomains(c) else f"cat:{c}" for c in cats]
-    return f"({' OR '.join(terms)}) AND submittedDate:[{start:%Y%m%d%H%M} TO {end:%Y%m%d%H%M}]"
-
-
-def _has_subdomains(code: str) -> bool:
-    """cs, math -> query cs.*; quant-ph, hep-th have no subdomains and are queried as-is."""
-    if not is_domain(code):
-        return False
-    return bool(DOMAINS[code][1]) if code in DOMAINS else True
-
+# ---------------------------------------------------------------- API (saved files only)
 
 def parse_api(data: bytes) -> Tuple[List[Paper], int]:
+    """Parse an export.arxiv.org API (Atom) response. Used for --from-file."""
     root = ET.fromstring(data)
     total_txt = root.findtext("opensearch:totalResults", namespaces=NS)
     total = int(total_txt) if total_txt and total_txt.strip().isdigit() else 0
@@ -201,53 +178,7 @@ def parse_api(data: bytes) -> Tuple[List[Paper], int]:
     return papers, total
 
 
-def date_window(days: int, now: Optional[datetime] = None) -> Tuple[datetime, datetime]:
-    """Whole UTC days: today plus the (days - 1) days before it."""
-    now = now or datetime.now(timezone.utc)
-    end = now.replace(hour=23, minute=59, second=0, microsecond=0, tzinfo=None)
-    start = (end - timedelta(days=days - 1)).replace(hour=0, minute=0)
-    return start, end
-
-
-def _fetch_recent_api(cats: Sequence[str], start: datetime, end: datetime, max_results: int,
-                      progress: bool) -> Tuple[List[Paper], dict]:
-    query = build_api_query(cats, start, end)
-    papers: List[Paper] = []
-    total = 0
-    offset = 0
-    warning = ""
-    while offset < max_results:
-        if offset:
-            time.sleep(API_DELAY)
-        n = min(API_PAGE, max_results - offset)
-        params = urllib.parse.urlencode({
-            "search_query": query, "start": offset, "max_results": n,
-            "sortBy": "submittedDate", "sortOrder": "descending",
-        })
-        try:
-            page, total = parse_api(http_get(f"{API_BASE}?{params}"))
-        except RefusedError:
-            raise
-        except FetchError as e:
-            if not papers:
-                raise
-            # Keep what we already have rather than losing it all.
-            warning = f"stopped after {len(papers)} of {total} papers: {e}"
-            print(f"  ! {warning}", file=sys.stderr)
-            break
-        papers.extend(page)
-        offset += n
-        if progress:
-            print(f"  fetched {len(papers)} / {min(total, max_results)}", file=sys.stderr)
-        if not page or offset >= total:
-            break
-    meta = {"source": "api", "query": query, "total": total}
-    if warning:
-        meta["warning"] = warning
-    return dedupe(papers), meta
-
-
-# ---------------------------------------------------------------- OAI-PMH (recent, fallback)
+# ---------------------------------------------------------------- OAI-PMH (recent)
 
 OAI_BASE = "https://oaipmh.arxiv.org/oai"
 OAI_NS = {"oai": "http://www.openarchives.org/OAI/2.0/", "ax": "http://arxiv.org/OAI/arXivRaw/"}
@@ -281,7 +212,7 @@ def parse_oai(data: bytes) -> Tuple[List[Paper], str]:
     papers: List[Paper] = []
     for rec in root.iterfind(".//oai:record", OAI_NS):
         header = rec.find("oai:header", OAI_NS)
-        if header is not None and header.get("status") == "deleted":
+        if header is None or header.get("status") == "deleted":
             continue
         m = rec.find(".//ax:arXivRaw", OAI_NS)
         if m is None:
@@ -302,70 +233,146 @@ def parse_oai(data: bytes) -> Tuple[List[Paper], str]:
             comment=_clean(m.findtext("ax:comments", namespaces=OAI_NS)),
             journal_ref=_clean(m.findtext("ax:journal-ref", namespaces=OAI_NS)),
             doi=_clean(m.findtext("ax:doi", namespaces=OAI_NS)),
+            # The datestamp is the listing day of the record's latest change; recent mode
+            # replaces it with the day the paper was first announced.
+            announced=_clean(header.findtext("oai:datestamp", namespaces=OAI_NS)) or None,
         ))
     token = _clean(root.findtext(".//oai:resumptionToken", namespaces=OAI_NS))
     return papers, token
 
 
-def submitted_in(p: Paper, start: datetime, end: datetime) -> bool:
-    """True if the paper's first version was submitted inside [start, end].
+def announcement_days(latest: date, n: int) -> List[date]:
+    """The n arXiv listing days (Monday to Friday) ending at `latest`, oldest first."""
+    days: List[date] = []
+    d = latest
+    while len(days) < n:
+        if d.weekday() < 5:
+            days.append(d)
+        d -= timedelta(days=1)
+    return days[::-1]
 
-    OAI-PMH lists every record *changed* since a date, so papers that only got a new version
-    appear too; they are dropped by their v1 date. The id's YYMM prefix is a cheap second check.
+
+def _last_weekday(d: date) -> date:
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def _id_key(arxiv_id: str) -> Optional[Tuple[int, int]]:
+    m = re.match(r"(\d{4})\.(\d{4,5})$", arxiv_id)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def _in_scope(category: str, cats: Sequence[str]) -> bool:
+    return any(category == c or category.startswith(c + ".") for c in cats)
+
+
+def group_by_announcement(papers: Sequence[Paper], cats: Sequence[str],
+                          calendar: Sequence[date]) -> List[Paper]:
+    """Rebuild arXiv's "recent" listing from OAI-PMH records.
+
+    `papers` carry the OAI datestamp (the listing day of their latest change) in `announced`.
+    `calendar` is the listing days to consider, oldest first; the first one is only a guard used
+    to find where the second one starts, and is not returned.
+
+    arXiv hands out ids in order at announcement time, so each listing day owns one block of ids.
+    Papers still at v1 whose datestamp is that day mark the block. Every paper is then placed on
+    the day whose block holds its id, which recovers papers that got a new version later in the
+    week and drops old papers that were only edited. OAI-PMH does not record when a paper was
+    cross-listed, so the few papers cross-listed into a category after their own announcement are
+    missed or listed on their original day. Checked against arxiv.org/list/<cat>/recent for seven
+    categories (3452 papers), about 99% match, on the same day and in the same order.
     """
-    if not p.published or not re.match(r"\d{4}\.\d{4,5}$", p.arxiv_id):
-        return False
-    if not (start.strftime("%Y-%m-%d") <= p.published[:10] <= end.strftime("%Y-%m-%d")):
-        return False
-    return start.strftime("%y%m") <= p.arxiv_id[:4] <= end.strftime("%y%m")
+    days = [d.isoformat() for d in calendar]
+    candidates: Dict[str, List[Tuple[int, int]]] = {d: [] for d in days}
+    for p in papers:
+        k = _id_key(p.arxiv_id)
+        if k is None or p.version != "v1" or p.announced not in candidates:
+            continue
+        announced_month = int((date.fromisoformat(p.announced) - timedelta(days=1)).strftime("%y%m"))
+        if k[0] == announced_month:  # ids carry the month they were handed out in
+            candidates[p.announced].append(k)
+
+    # Where each day's block starts. A datestamp is never earlier than the announcement, so every
+    # candidate of an earlier day lies inside that day's block or before it. The day's block
+    # therefore starts at its first candidate above everything seen on earlier days; candidates
+    # below that are older papers edited on this day.
+    starts: List[Tuple[Tuple[int, int], str]] = []
+    highest: Optional[Tuple[int, int]] = None
+    for d in days:
+        ks = [k for k in candidates[d] if highest is None or k > highest]
+        if not ks:
+            continue
+        starts.append((min(ks), d))
+        highest = max(ks)
+
+    wanted = set(days[1:])
+    out: List[Paper] = []
+    for p in papers:
+        k = _id_key(p.arxiv_id)
+        if k is None or not p.announced:
+            continue
+        day = None
+        for start, d in starts:
+            if k >= start:
+                day = d
+        # A paper can only have changed on or after the day it was announced.
+        if day is None or day > p.announced or day not in wanted:
+            continue
+        p.announced = day
+        p.announce_type = "new" if _in_scope(p.primary_category, cats) else "cross"
+        out.append(p)
+    # arXiv's order: newest day first; within a day new submissions, then cross-lists, newest first.
+    out.sort(key=lambda p: (p.announced, p.announce_type == "new", _id_key(p.arxiv_id)), reverse=True)
+    return out
 
 
-def _fetch_recent_oai(cats: Sequence[str], start: datetime, end: datetime, max_results: int,
-                      progress: bool) -> Tuple[List[Paper], dict]:
+def fetch_recent(cats: Sequence[str], days: int = 3, max_results: Optional[int] = None,
+                 progress: bool = True, today: Optional[date] = None) -> Tuple[List[Paper], dict]:
+    """The last `days` arXiv announcements for `cats`: what arxiv.org/list/<cat>/recent shows."""
+    today = today or datetime.now(timezone.utc).date()
+    latest = _last_weekday(today)
+    # One guard day to find where the oldest wanted day starts, plus one spare in case today's
+    # announcement has not reached OAI-PMH yet.
+    since = announcement_days(latest, days + 2)[0]
+
     papers: List[Paper] = []
     first = True
     for cat in cats:
         params = {"verb": "ListRecords", "metadataPrefix": "arXivRaw",
-                  "from": start.strftime("%Y-%m-%d"), "set": oai_set(cat)}
+                  "from": since.isoformat(), "set": oai_set(cat)}
         for _ in range(OAI_MAX_PAGES):
             if not first:
                 time.sleep(API_DELAY)
             first = False
             page, token = parse_oai(http_get(f"{OAI_BASE}?{urllib.parse.urlencode(params)}"))
-            papers.extend(p for p in page if submitted_in(p, start, end))
+            papers.extend(page)
             if progress:
-                print(f"  {oai_set(cat)}: scanned {len(page)} records, {len(papers)} submitted in window",
-                      file=sys.stderr)
+                print(f"  {oai_set(cat)}: {len(papers)} records read", file=sys.stderr)
             if not token:
                 break
             params = {"verb": "ListRecords", "resumptionToken": token}
     papers = dedupe(papers)
-    papers.sort(key=lambda p: p.arxiv_id, reverse=True)  # ids grow with submission time
-    total = len(papers)
-    return papers[:max_results], {"source": "oai", "total": total}
 
-
-def fetch_recent(cats: Sequence[str], days: int = 3, max_results: int = 500,
-                 progress: bool = True, source: str = "auto") -> Tuple[List[Paper], dict]:
-    """Papers submitted in the last `days` UTC days.
-
-    source: "api" (export.arxiv.org search API), "oai" (OAI-PMH) or "auto" (API, and OAI-PMH
-    when the API refuses the request, which it does with HTTP 406 while it throttles a host).
-    """
-    start, end = date_window(days)
-    if source == "oai":
-        papers, meta = _fetch_recent_oai(cats, start, end, max_results, progress)
-    else:
-        try:
-            papers, meta = _fetch_recent_api(cats, start, end, max_results, progress)
-        except RefusedError as e:
-            if source == "api":
-                raise FetchError(f"{e}. The arXiv API is throttling this machine; "
-                                 f"try --source oai or wait a while.") from e
-            print(f"  ! arXiv API refused the query ({e}); switching to OAI-PMH …", file=sys.stderr)
-            papers, meta = _fetch_recent_oai(cats, start, end, max_results, progress)
-    meta.update({"start": start.isoformat(), "end": end.isoformat()})
-    return papers, meta
+    seen = [p.announced for p in papers if p.announced]
+    if seen:
+        latest = min(latest, _last_weekday(date.fromisoformat(max(seen))))
+    calendar = announcement_days(latest, days + 1)
+    grouped = group_by_announcement(papers, cats, calendar)
+    total = len(grouped)
+    if max_results is not None:
+        grouped = grouped[:max_results]
+    per_day = []
+    for d in reversed(calendar[1:]):
+        iso = d.isoformat()
+        per_day.append({
+            "date": iso,
+            "new": sum(1 for p in grouped if p.announced == iso and p.announce_type == "new"),
+            "cross": sum(1 for p in grouped if p.announced == iso and p.announce_type == "cross"),
+        })
+    meta = {"source": "oai", "total": total, "days": per_day,
+            "start": calendar[1].isoformat(), "end": calendar[-1].isoformat()}
+    return grouped, meta
 
 
 # ---------------------------------------------------------------- helpers

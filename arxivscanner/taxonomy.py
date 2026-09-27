@@ -241,13 +241,14 @@ def pick_categories() -> List[str]:
 
 
 def pick_mode() -> Tuple[str, int]:
-    print("\nMode:\n    1. today   (today's announcement, RSS)\n    2. recent  (submitted in the last N days, API)")
+    print("\nMode:\n    1. today   (today's announcement feed)\n"
+          "    2. recent  (the last N announcements, like arXiv's 'recent' page)")
     while True:
         raw = input("Pick a mode [1]: ").strip() or "1"
         if raw in ("1", "today"):
             return "today", 1
         if raw in ("2", "recent"):
-            d = input("How many days? [3]: ").strip() or "3"
+            d = input("How many announcement days? [3]: ").strip() or "3"
             if d.isdigit() and int(d) > 0:
                 return "recent", int(d)
         print("  Enter 1 or 2.")

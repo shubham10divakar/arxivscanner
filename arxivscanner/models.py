@@ -28,6 +28,7 @@ class Paper:
     categories: List[str] = field(default_factory=list)
     primary_category: str = ""
     announce_type: str = ""          # new | cross | replace | replace-cross ('' for API results)
+    announced: Optional[str] = None  # ISO date of the arXiv listing day the paper appeared in (recent mode)
     published: Optional[str] = None  # ISO date/time of first submission (API) or announcement (RSS)
     updated: Optional[str] = None
     comment: str = ""

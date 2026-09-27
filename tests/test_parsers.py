@@ -2,15 +2,15 @@ import io
 import json
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
 from arxivscanner import fetchers
 from arxivscanner.display import export_json, export_markdown
-from arxivscanner.fetchers import (build_api_query, build_rss_url, filter_types, oai_set, parse_api, parse_file,
-                                   parse_oai, parse_rss, submitted_in)
-from arxivscanner.models import split_id
+from arxivscanner.fetchers import (announcement_days, build_rss_url, filter_types, group_by_announcement, oai_set,
+                                   parse_api, parse_file, parse_oai, parse_rss)
+from arxivscanner.models import Paper, split_id
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -47,57 +47,85 @@ class TestParsers(unittest.TestCase):
 
     def test_urls(self):
         self.assertEqual(build_rss_url(["cs.CV", "cs.LG"]), "https://rss.arxiv.org/rss/cs.CV+cs.LG")
-        q = build_api_query(["cs.CV", "cs"], datetime(2026, 9, 25), datetime(2026, 9, 27, 23, 59))
-        self.assertEqual(q, "(cat:cs.CV OR cat:cs.*) AND submittedDate:[202609250000 TO 202609272359]")
-        # Domains without subdomains are categories themselves, so no wildcard.
-        q = build_api_query(["quant-ph"], datetime(2026, 9, 25), datetime(2026, 9, 27, 23, 59))
-        self.assertTrue(q.startswith("(cat:quant-ph) AND"))
-
-    def test_oai(self):
         self.assertEqual(oai_set("cs.CV"), "cs:cs:CV")
         self.assertEqual(oai_set("cs"), "cs:cs")
         self.assertEqual(oai_set("astro-ph.CO"), "physics:astro-ph:CO")
         self.assertEqual(oai_set("quant-ph"), "physics:quant-ph")
 
+    def test_oai(self):
         papers, token = parse_oai((FIX / "sample_oai.xml").read_bytes())
         self.assertEqual(token, "")
-        self.assertEqual([p.arxiv_id for p in papers], ["2609.00020", "2609.00949", "2303.15533"])  # deleted skipped
+        self.assertEqual([p.arxiv_id for p in papers], ["2609.30020", "2609.00949", "2303.15533"])  # deleted skipped
         p = papers[0]
         self.assertEqual((p.version, p.title), ("v1", "New OAI Paper: Diffusion for Depth"))
         self.assertEqual(p.authors, ["Grace Hopper", "Alan Turing", "Ada Lovelace"])
         self.assertEqual((p.primary_category, p.categories), ("cs.CV", ["cs.CV", "cs.LG"]))
         self.assertEqual((p.abstract, p.comment), ("We estimate depth with diffusion.", "9 pages"))
         self.assertTrue(p.published.startswith("2026-09-25T14:02:11"))
+        self.assertEqual(p.announced, "2026-09-25")  # the OAI datestamp
         self.assertEqual(papers[1].version, "v2")
         self.assertTrue(papers[1].published.startswith("2026-09-01"))  # v1 date, not the v2 date
 
-        start, end = datetime(2026, 9, 25), datetime(2026, 9, 27, 23, 59)
-        kept = [p.arxiv_id for p in papers if submitted_in(p, start, end)]
-        self.assertEqual(kept, ["2609.00020"])  # same-month replacement and old paper both dropped
+    def test_announcement_days(self):
+        self.assertEqual(announcement_days(date(2026, 9, 25), 3),
+                         [date(2026, 9, 23), date(2026, 9, 24), date(2026, 9, 25)])
+        # Weekends have no listing.
+        self.assertEqual(announcement_days(date(2026, 9, 28), 3),
+                         [date(2026, 9, 24), date(2026, 9, 25), date(2026, 9, 28)])
 
-    def test_recent_falls_back_to_oai_when_api_refuses(self):
+    def test_group_by_announcement(self):
+        def paper(aid, version, datestamp, primary="cs.CV"):
+            return Paper(arxiv_id=aid, version=version, announced=datestamp,
+                         categories=[primary], primary_category=primary)
+
+        tue, wed, thu = "2026-09-22", "2026-09-23", "2026-09-24"
+        papers = [
+            # Tuesday's block (the guard day): 22001-22005
+            paper("2609.22001", "v1", tue), paper("2609.22002", "v1", tue), paper("2609.22005", "v1", tue),
+            paper("2609.22003", "v1", wed),   # edited on Wednesday: still Tuesday's, so dropped
+            paper("2609.22004", "v2", thu),   # new version on Thursday: still Tuesday's, so dropped
+            # Wednesday's block: 23001-23009
+            paper("2609.23001", "v1", wed), paper("2609.23002", "v1", wed), paper("2609.23004", "v1", wed),
+            paper("2609.23006", "v1", wed), paper("2609.23009", "v1", wed),
+            paper("2609.23003", "v1", thu),   # edited on Thursday: stays on Wednesday
+            paper("2609.23005", "v2", thu),   # new version on Thursday: stays on Wednesday
+            # Thursday's block: 24001-24004
+            paper("2609.24001", "v1", thu), paper("2609.24002", "v1", thu), paper("2609.24003", "v1", thu),
+            paper("2609.24004", "v1", thu, primary="cs.LG"),  # cross-listed into cs.CV
+            paper("2609.23007", "v1", thu, primary="cs.NI"),  # Wednesday cross-list, edited Thursday
+            paper("2609.23008", "v2", thu, primary="cs.NI"),  # Wednesday cross-list, new version Thursday
+            # Older papers that were only edited this week
+            paper("2609.10000", "v1", thu),
+            paper("2508.12345", "v1", wed),
+        ]
+        calendar = [date(2026, 9, 22), date(2026, 9, 23), date(2026, 9, 24)]
+        out = group_by_announcement(papers, ["cs.CV"], calendar)
+        self.assertEqual(
+            [(p.arxiv_id, p.announced, p.announce_type) for p in out],
+            [("2609.24003", thu, "new"), ("2609.24002", thu, "new"), ("2609.24001", thu, "new"),
+             ("2609.24004", thu, "cross"),
+             ("2609.23009", wed, "new"), ("2609.23006", wed, "new"), ("2609.23005", wed, "new"), ("2609.23004", wed, "new"),
+             ("2609.23003", wed, "new"), ("2609.23002", wed, "new"), ("2609.23001", wed, "new"),
+             ("2609.23008", wed, "cross"), ("2609.23007", wed, "cross")])
+        # A whole-domain request counts every cs.* primary as new.
+        self.assertTrue(all(p.announce_type == "new" for p in group_by_announcement(papers, ["cs"], calendar)))
+
+    def test_fetch_recent(self):
         oai = (FIX / "sample_oai.xml").read_bytes()
-        calls = []
+        urls = []
 
         def fake_get(url, *a, **kw):
-            calls.append(url)
-            if "export.arxiv.org" in url:
-                raise fetchers.RefusedError("HTTP 406 Not Acceptable from export.arxiv.org")
+            urls.append(url)
             return oai
 
-        window = (datetime(2026, 9, 25), datetime(2026, 9, 27, 23, 59))
-        with mock.patch.object(fetchers, "http_get", fake_get), \
-                mock.patch.object(fetchers, "date_window", lambda days: window), \
-                mock.patch("sys.stderr", io.StringIO()):
-            papers, meta = fetchers.fetch_recent(["cs.CV"], days=3)
-        self.assertEqual(meta["source"], "oai")
-        self.assertEqual([p.arxiv_id for p in papers], ["2609.00020"])
-        self.assertIn("export.arxiv.org", calls[0])
-        self.assertIn("oaipmh.arxiv.org", calls[1])
-
         with mock.patch.object(fetchers, "http_get", fake_get), mock.patch("sys.stderr", io.StringIO()):
-            with self.assertRaises(fetchers.FetchError):
-                fetchers.fetch_recent(["cs.CV"], days=3, source="api")
+            papers, meta = fetchers.fetch_recent(["cs.CV"], days=1, today=date(2026, 9, 27))  # a Sunday
+        self.assertIn("oaipmh.arxiv.org", urls[0])
+        self.assertIn("from=2026-09-23", urls[0])  # Friday plus a guard day and a spare day
+        self.assertEqual([(p.arxiv_id, p.announced, p.announce_type) for p in papers],
+                         [("2609.30020", "2026-09-25", "new")])  # replaced and old papers dropped
+        self.assertEqual(meta["days"], [{"date": "2026-09-25", "new": 1, "cross": 0}])
+        self.assertEqual((meta["start"], meta["end"]), ("2026-09-25", "2026-09-25"))
 
     def test_parse_file_and_exports(self):
         papers, meta = parse_file((FIX / "sample_rss.xml").read_bytes())
