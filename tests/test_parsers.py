@@ -317,6 +317,65 @@ class TestLibrary(unittest.TestCase):
         code, _, err = run_cli("unsave", "2")
         self.assertIn("isn't in your library", err)
 
+    def test_config_show_and_settings(self):
+        code, out, _ = run_cli("config")
+        self.assertIn(f"Library:   {self.default}   (set by: default)", out)
+        self.assertIn(str(self.default / "pdfs"), out)
+        self.assertIn("Auto-PDF:  off", out)
+
+        pdfs = Path(_home.name) / "big-drive" / "papers"
+        run_cli("config", "--pdfs", str(pdfs), "--auto-pdf", "on")
+        self.assertEqual(library.pdf_folder(self.default), pdfs.resolve())
+        self.assertTrue(library.load_config()["auto_pdf"])
+        run_cli("config", "--pdfs", "default", "--auto-pdf", "off")
+        self.assertEqual(library.pdf_folder(self.default), self.default / "pdfs")
+        self.assertFalse(library.load_config()["auto_pdf"])
+
+    def test_config_library_move(self):
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        run_cli("save", "1", "2")
+        (self.default / "pdfs").mkdir()
+        (self.default / "pdfs" / "2609.00001 - Sample.pdf").write_bytes(b"%PDF-1.4 test")
+        research = Path(_home.name) / "research"
+
+        code, out, _ = run_cli("config", "--library", str(research), "--move")
+        self.assertEqual(code, 0)
+        self.assertEqual(library.resolve_library(), (research.resolve(), "config"))
+        self.assertEqual(len(library.Library(research)), 2)
+        self.assertTrue((research / "pdfs" / "2609.00001 - Sample.pdf").exists())
+        self.assertFalse(self.default.exists())          # emptied, so removed
+
+        # Moving back into a folder that already has a library is refused.
+        other = Path(_home.name) / "other"
+        run_cli("save", "3", "--library", str(other))
+        code, _, err = run_cli("config", "--library", str(other), "--move")
+        self.assertEqual(code, 1)
+        self.assertIn("already has a library", err)
+        self.assertEqual(library.resolve_library()[0], research.resolve())   # unchanged
+
+        # --no-move switches folders and leaves the old library alone.
+        code, out, _ = run_cli("config", "--library", "default", "--no-move")
+        self.assertEqual(library.resolve_library(), (self.default, "default"))
+        self.assertEqual(len(library.Library(research)), 2)
+        self.assertEqual(len(library.Library(self.default)), 0)
+
+    def test_config_move_prompt(self):
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        run_cli("save", "1")
+        target = Path(_home.name) / "research"
+        with mock.patch("sys.stdin.isatty", return_value=True), mock.patch("builtins.input", return_value="c"):
+            code, out, _ = run_cli("config", "--library", str(target))
+        self.assertIn("Nothing changed.", out)
+        self.assertEqual(library.resolve_library()[1], "default")
+        with mock.patch("sys.stdin.isatty", return_value=True), mock.patch("builtins.input", return_value=""):
+            run_cli("config", "--library", str(target))
+        self.assertEqual(len(library.Library(target)), 1)
+        # Without a terminal to ask in, nothing is moved.
+        with mock.patch("sys.stdin.isatty", return_value=False):
+            code, out, _ = run_cli("config", "--library", "default")
+        self.assertIn("run the same command with --move", out)
+        self.assertEqual(len(library.Library(target)), 1)
+
     def test_library_flag_and_empty_library(self):
         other = Path(_home.name) / "other"
         run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")

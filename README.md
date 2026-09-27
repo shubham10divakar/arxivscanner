@@ -234,7 +234,34 @@ arxivscanner unsave 2609.30249           # remove a paper
 arxivscanner unsave 2 --tag to-read      # keep the paper, drop the tag
 ```
 
-**Where saved papers are kept.** In one folder, `~/arxivscanner` by default (`C:\Users\<you>\arxivscanner` on Windows), as a plain `library.json` file you can back up or sync. To use another folder for a single command, add `--library "D:/Research/arxiv"`, or set the `ARXIVSCANNER_LIBRARY` environment variable.
+### Choosing where saved papers go
+
+Saved papers live in one folder, `~/arxivscanner` by default (`C:\Users\<you>\arxivscanner` on Windows). It holds a plain `library.json` you can back up or sync, and later the downloaded PDFs. If you'll use the tool for a long time, point it at a folder of your choice once:
+
+```bash
+arxivscanner config --library "D:/Research/arxiv"    # remembered from now on
+arxivscanner config --pdfs "E:/big-drive/papers"      # optional: PDFs in a separate, bigger folder
+arxivscanner config                                   # show where everything is
+```
+
+```
+Library:   D:\Research\arxiv   (set by: config)
+PDFs:      D:\Research\arxiv\pdfs   (inside the library)
+Auto-PDF:  off
+Settings:  C:\Users\you\.arxivscanner\config.json
+Saved papers: 214   PDFs: 187 (1.9 GB)
+```
+
+If you already have saved papers when you change the folder, the tool asks whether to move them there, start fresh, or cancel (`--move` or `--no-move` answer up front). It never merges two libraries: if the new folder already has one, nothing is moved. PDF paths are stored relative to the library folder, so you can also move or copy the whole folder yourself, for example into Dropbox or OneDrive, and point `config --library` at it.
+
+| Way to choose the folder | Example | Use it for |
+|---|---|---|
+| Default | `~/arxivscanner` | Nothing to set up |
+| Saved setting | `arxivscanner config --library "D:/Research/arxiv"` | Your normal setup |
+| For one command | `arxivscanner saved --library "E:/old-library"` | Looking at a second library |
+| Environment variable | `ARXIVSCANNER_LIBRARY=/data/arxiv` | Scripts and servers |
+
+The most specific one wins: the flag, then the environment variable, then the saved setting, then the default. `arxivscanner config --library default` or `--pdfs default` goes back to the defaults. The settings themselves stay in `~/.arxivscanner/config.json`, so the tool can always find your library.
 
 ### Which mode should I use?
 
@@ -291,7 +318,7 @@ arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / OAI-P
                    │             └─► models.Paper   (one normalised record)
                    ├─► taxonomy.py  (domain → subdomain names, picker)
                    ├─► filters.py   (keyword search)
-                   ├─► commands.py  (save / saved / unsave) ─► library.py (reading list)
+                   ├─► commands.py  (save / saved / unsave / config) ─► library.py (reading list)
                    └─► display.py   (terminal view, JSON / Markdown export)
 ```
 
@@ -301,7 +328,7 @@ arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / OAI-P
 | `models.py` | `Paper` dataclass: id, version, title, authors, abstract, categories, primary category, announce type, dates, comment, journal ref, DOI, abs and PDF URLs. |
 | `fetchers.py` | Two sources, one output type. `fetch_today()` reads the RSS feed. `fetch_recent()` pages through OAI-PMH (`arXivRaw` records) and `group_by_announcement()` rebuilds arXiv's recent listing from them. Also handles retries with back-off, the 3 s delay between calls, de-duplication and type filtering. |
 | `library.py` | The reading list: where the library folder is (flag, environment variable, setting or default), `library.json` with each saved paper's details, tags and save date, and the last list shown. |
-| `commands.py` | The `save`, `saved` and `unsave` commands. |
+| `commands.py` | The `save`, `saved`, `unsave` and `config` commands. |
 | `filters.py` | Keyword search: `keyword_pattern()` builds the case-insensitive, word-start pattern and `filter_keywords()` keeps papers whose title or abstract matches. |
 | `display.py` | Colour terminal output (works in Windows 10+ consoles too), grouped by announcement day in recent mode, plus `export_json` and `export_markdown`. |
 | `cli.py` | Flags and the interactive picker. `--from-file` parses a saved XML file offline. |

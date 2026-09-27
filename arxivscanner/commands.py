@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import textwrap
@@ -13,7 +14,9 @@ from typing import Callable, Dict, List, Sequence, Tuple
 from . import display
 from .fetchers import fetch_papers
 from .filters import filter_keywords, keyword_pattern
-from .library import Library, last_list, paper_from_dict, remember_list, resolve_library
+from . import library as _library
+from .library import (ENV_LIBRARY, Library, folder_stats, human_size, last_list, load_config, move_library,
+                      paper_from_dict, pdf_folder, remember_list, resolve_library, save_config)
 from .models import Paper, split_id
 
 _ID_RE = re.compile(r"\d{4}\.\d{4,5}|[a-z\-]+(?:\.[A-Z]{2})?/\d{7}")
@@ -196,8 +199,97 @@ def cmd_unsave(argv: Sequence[str]) -> int:
     return 1 if errors else 0
 
 
+# ---------------------------------------------------------------- config
+
+def _show_config() -> None:
+    folder, source = resolve_library()
+    papers, n_pdfs, size = folder_stats(folder)
+    config = load_config()
+    print(f"Library:   {folder}   (set by: {source})")
+    print(f"PDFs:      {pdf_folder(folder)}" + ("" if config.get("pdfs") else "   (inside the library)"))
+    print(f"Auto-PDF:  {'on' if config.get('auto_pdf') else 'off'}")
+    print(f"Settings:  {_library.settings_dir() / 'config.json'}")
+    print(f"Saved papers: {papers}   PDFs: {n_pdfs} ({human_size(size)})")
+
+
+def _ask_move(old: Path, new: Path, papers: int, n_pdfs: int, size: int) -> str:
+    """'move', 'fresh' or 'cancel'. Without a terminal to ask in, don't move."""
+    what = f"{papers} saved papers" + (f" and {n_pdfs} PDFs ({human_size(size)})" if n_pdfs else "")
+    if not sys.stdin.isatty():
+        print(f"You have {what} in {old}. They stay there; run the same command with --move to move them.")
+        return "fresh"
+    while True:
+        answer = input(f"You have {what} in {old}.\n"
+                       f"Move them to {new}?  [Y]es / [n]o, start fresh there / [c]ancel: ").strip().lower()
+        if answer in ("", "y", "yes"):
+            return "move"
+        if answer in ("n", "no"):
+            return "fresh"
+        if answer in ("c", "cancel"):
+            return "cancel"
+
+
+def cmd_config(argv: Sequence[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="arxivscanner config",
+        description="Show or change where your saved papers and PDFs are kept. With no options, show the settings.",
+        epilog='examples:  arxivscanner config --library "D:/Research/arxiv"   |   '
+               'arxivscanner config --pdfs "E:/papers"   |   arxivscanner config --library default')
+    p.add_argument("--library", metavar="FOLDER",
+                   help='folder for your saved papers ("default" for ~/arxivscanner)')
+    p.add_argument("--pdfs", metavar="FOLDER",
+                   help='separate folder for downloaded PDFs ("default" for a pdfs folder inside the library)')
+    p.add_argument("--auto-pdf", choices=("on", "off"), help="download the PDF of every paper you save")
+    move = p.add_mutually_exclusive_group()
+    move.add_argument("--move", action="store_true", help="when changing --library, move the saved papers without asking")
+    move.add_argument("--no-move", action="store_true", help="when changing --library, leave the old library where it is")
+    args = p.parse_args(argv)
+    display.setup_output()
+
+    if args.library is None and args.pdfs is None and args.auto_pdf is None:
+        _show_config()
+        return 0
+
+    config = load_config()
+    if args.library is not None:
+        old = Path(config["library"]).expanduser() if config.get("library") else _library.default_library()
+        new = _library.default_library() if args.library == "default" else Path(args.library).expanduser().resolve()
+        if new.resolve() != old.resolve():
+            papers, n_pdfs, size = folder_stats(old)
+            choice = "fresh"
+            if papers or n_pdfs:
+                choice = "move" if args.move else "fresh" if args.no_move else _ask_move(old, new, papers, n_pdfs, size)
+            if choice == "cancel":
+                print("Nothing changed.")
+                return 0
+            if choice == "move":
+                for line in move_library(old, new):
+                    print(f"  {line} to {new}")
+        if args.library == "default":
+            config.pop("library", None)
+        else:
+            config["library"] = str(new)
+        print(f"Library folder: {new}")
+    if args.pdfs is not None:
+        if args.pdfs == "default":
+            config.pop("pdfs", None)
+            print("PDFs: in a pdfs folder inside the library")
+        else:
+            config["pdfs"] = str(Path(args.pdfs).expanduser().resolve())
+            print(f"PDFs: {config['pdfs']}")
+    if args.auto_pdf is not None:
+        config["auto_pdf"] = args.auto_pdf == "on"
+        print(f"Auto-PDF: {args.auto_pdf}")
+    save_config(config)
+    if os.environ.get(ENV_LIBRARY):
+        print(display.c(f"Note: {ENV_LIBRARY} is set to {os.environ[ENV_LIBRARY]}, which takes priority "
+                        "over this setting until it's unset.", "yellow"))
+    return 0
+
+
 COMMANDS: Dict[str, Callable[[Sequence[str]], int]] = {
     "save": cmd_save,
     "saved": cmd_saved,
     "unsave": cmd_unsave,
+    "config": cmd_config,
 }

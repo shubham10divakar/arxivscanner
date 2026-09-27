@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from dataclasses import fields
 from datetime import datetime, timezone
@@ -79,6 +80,59 @@ def resolve_library(override: Optional[str] = None) -> Tuple[Path, str]:
     if configured:
         return Path(configured).expanduser(), "config"
     return default_library(), "default"
+
+
+def pdf_folder(library_folder: Path) -> Path:
+    """Where PDFs go: the configured PDF folder, or `pdfs` inside the library folder."""
+    configured = load_config().get("pdfs")
+    return Path(configured).expanduser() if configured else Path(library_folder) / "pdfs"
+
+
+def folder_stats(library_folder: Path) -> Tuple[int, int, int]:
+    """(saved papers, PDF files, total PDF bytes) for a library folder."""
+    pdfs = pdf_folder(library_folder)
+    files = [f for f in pdfs.glob("*.pdf") if f.is_file()] if pdfs.is_dir() else []
+    return len(Library(library_folder)), len(files), sum(f.stat().st_size for f in files)
+
+
+def human_size(n: int) -> str:
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit in ("B", "KB") else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{n} B"
+
+
+def move_library(src: Path, dst: Path) -> List[str]:
+    """Move library.json (and the PDFs, when they live inside the library folder) from src to dst.
+
+    Refuses when dst already holds a library, so two libraries are never silently merged.
+    Returns what was moved, as messages.
+    """
+    src, dst = Path(src), Path(dst)
+    if (dst / LIBRARY_FILE).exists():
+        raise LibraryError(f"{dst} already has a library ({len(Library(dst))} papers); nothing was moved")
+    dst.mkdir(parents=True, exist_ok=True)
+    done = []
+    if (src / LIBRARY_FILE).exists():
+        shutil.move(str(src / LIBRARY_FILE), str(dst / LIBRARY_FILE))
+        done.append(f"moved {LIBRARY_FILE}")
+    inside_pdfs = src / "pdfs"
+    if not load_config().get("pdfs") and inside_pdfs.is_dir():
+        target = dst / "pdfs"
+        target.mkdir(exist_ok=True)
+        moved = 0
+        for f in inside_pdfs.iterdir():
+            if f.is_file() and not (target / f.name).exists():
+                shutil.move(str(f), str(target / f.name))
+                moved += 1
+        done.append(f"moved {moved} PDF(s)")
+        if not any(inside_pdfs.iterdir()):
+            inside_pdfs.rmdir()
+    if src.is_dir() and not any(src.iterdir()):
+        src.rmdir()
+    return done
 
 
 # ---------------------------------------------------------------- the last list shown
