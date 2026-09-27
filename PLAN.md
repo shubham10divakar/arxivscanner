@@ -1,6 +1,6 @@
 # arXiv Scanner: Plan
 
-Status as of 0.3.0. For how to use what's built, see the [README](README.md).
+Status as of 0.3.1. For how to use what's built, see the [README](README.md).
 
 ## Done
 
@@ -9,6 +9,7 @@ Status as of 0.3.0. For how to use what's built, see the [README](README.md).
 | **0.1** | Fetch, display and export papers by domain and subdomain; today's announcement feed. |
 | **0.2** | `recent` mode matches arXiv's "recent" page: the last N announcements, grouped by day (about 99% of papers on the same day and in the same order, checked against 7 categories). Keyword search with `-k`: case-insensitive, matching from the start of a word, any of the keywords, title and abstract, with matches highlighted. Accented author names shown correctly. Tests on Linux, macOS and Windows with Python 3.9 to 3.14. |
 | **0.3** | A reading list: `save`, `saved` and `unsave` with tags, by list number or arXiv id. PDF downloads (`save --pdf`, `saved --download`, `config --auto-pdf on`). Your choice of folders (`config --library`, `config --pdfs`), with an offer to move existing papers. A save prompt in interactive mode, and a welcome screen showing your settings. |
+| **0.3.1** | Fix: a folder quoted with a trailing backslash in Windows PowerShell (`'.\My papers\'`) was saved with a stray quote and broke later commands. It's now cleaned up, including in settings already saved. |
 
 The fuller keyword design once proposed here (`--match all`, `--in`, `--rank`) was dropped in favour of the simplest version. Ranking returns in 0.6 below.
 

@@ -73,7 +73,7 @@ Here's a real session: Computer Science → cs.AI → recent, the last 4 announc
 
 ```
 PS C:\Users\you> arxivscanner
-Welcome to arxivscanner 0.3.0
+Welcome to arxivscanner 0.3.1
 Built with ♥ by Subham Divakar
 
 Your settings (you can change them any time):
@@ -266,7 +266,7 @@ arxivscanner config
 ```
 
 ```
-arxivscanner 0.3.0 · Built with ♥ by Subham Divakar
+arxivscanner 0.3.1 · Built with ♥ by Subham Divakar
 
 Library:   D:\Research\arxiv
            your setting · back to the default with: arxivscanner config --library default
