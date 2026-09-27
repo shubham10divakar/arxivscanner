@@ -73,7 +73,7 @@ Here's a real session: Computer Science → cs.AI → recent, the last 4 announc
 
 ```
 PS C:\Users\you> arxivscanner
-Welcome to arxivscanner 0.2.0
+Welcome to arxivscanner 0.3.0
 Built with ♥ by Subham Divakar
 
 Your settings (you can change them any time):
@@ -266,7 +266,7 @@ arxivscanner config
 ```
 
 ```
-arxivscanner 0.2.0 · Built with ♥ by Subham Divakar
+arxivscanner 0.3.0 · Built with ♥ by Subham Divakar
 
 Library:   D:\Research\arxiv
            your setting · back to the default with: arxivscanner config --library default
@@ -402,8 +402,9 @@ arxivscanner ──► cli.py ──► fetchers.py ──► arXiv (RSS / OAI-P
 ## Roadmap
 
 - **0.1** Fetch, display and export by domain and subdomain.
-- **0.2** (current) `recent` mode matches arXiv's "recent" page (the last N announcements, grouped by day), keyword search with `-k`, author names with accents shown correctly, and tests on Linux, macOS and Windows.
-- **0.3** Saved profiles (`--profile vision` for your usual categories and keywords) and remembering papers already seen, so each run shows only new ones.
-- **0.4** Daily digest: a scheduled run that writes an HTML or Markdown digest, or sends it by email.
-- **0.5** Ranking by interest (keyword weights, favourite authors; later embeddings).
-- **Later** Bookmarks, BibTeX/Zotero export and PDF download; an interactive browser or dashboard.
+- **0.2** `recent` mode matches arXiv's "recent" page (the last N announcements, grouped by day), keyword search with `-k`, author names with accents shown correctly, and tests on Linux, macOS and Windows.
+- **0.3** (current) A reading list: `save`, `saved` and `unsave` with tags, PDF downloads, your choice of folders with `config`, a save prompt in interactive mode, and a welcome screen showing your settings.
+- **0.4** Saved profiles (`--profile vision` for your usual categories and keywords) and remembering papers already seen, so each run shows only new ones.
+- **0.5** Daily digest: a scheduled run that writes an HTML or Markdown digest, or sends it by email.
+- **0.6** Ranking by interest (keyword weights, favourite authors; later embeddings).
+- **Later** BibTeX export, notes on papers, and a local web UI (`arxivscanner ui`) for browsing and saving in the browser.
