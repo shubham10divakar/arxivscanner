@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import fields
@@ -95,6 +96,43 @@ def folder_stats(library_folder: Path) -> Tuple[int, int, int]:
     return len(Library(library_folder)), len(files), sum(f.stat().st_size for f in files)
 
 
+_UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+WINDOWS_PATH_LIMIT = 250   # Windows refuses paths longer than 260 characters by default
+
+
+def pdf_filename(paper: Paper, folder: Optional[Path] = None, max_title: int = 80,
+                 path_limit: Optional[int] = WINDOWS_PATH_LIMIT if os.name == "nt" else None) -> str:
+    """'2609.30264 - AD-WM Action-Discriminative World Models for Counterfactual Model.pdf'.
+
+    Readable in a file browser and safe on Windows, macOS and Linux. With a folder, the title is
+    shortened so the full path stays under Windows' path length limit (down to just the id).
+    """
+    safe_id = paper.arxiv_id.replace("/", "_")
+    if folder is not None and path_limit:
+        room = path_limit - len(str(Path(folder).resolve())) - 1 - len(f"{safe_id} - .pdf")
+        max_title = min(max_title, room)
+    title = re.sub(r"\s+", " ", _UNSAFE_FILENAME.sub(" ", paper.title)).strip()
+    if len(title) > max_title:
+        title = title[:max_title].rsplit(" ", 1)[0] if max_title >= 10 else ""
+    title = title.rstrip(" .")
+    return f"{safe_id} - {title}.pdf" if title else f"{safe_id}.pdf"
+
+
+def write_file_atomic(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".download-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
 def human_size(n: int) -> str:
     size = float(n)
     for unit in ("B", "KB", "MB", "GB"):
@@ -133,6 +171,22 @@ def move_library(src: Path, dst: Path) -> List[str]:
     if src.is_dir() and not any(src.iterdir()):
         src.rmdir()
     return done
+
+
+def move_pdfs(library_folder: Path, old_dir: Path, new_dir: Path) -> int:
+    """Move the library's downloaded PDFs from old_dir to new_dir and update their recorded paths."""
+    library = Library(library_folder)
+    new_dir.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    for arxiv_id in library.pdfs_in(old_dir):
+        current = library.pdf_path(arxiv_id)
+        target = new_dir / current.name
+        if not target.exists():
+            shutil.move(str(current), str(target))
+            moved += 1
+        library.set_pdf(arxiv_id, target)
+    library.save()
+    return moved
 
 
 # ---------------------------------------------------------------- the last list shown
@@ -196,6 +250,36 @@ class Library:
 
     def remove(self, arxiv_id: str) -> Optional[dict]:
         return self._entries.pop(arxiv_id, None)
+
+    def pdf_path(self, arxiv_id: str) -> Optional[Path]:
+        """Where this paper's PDF is (it may since have been deleted), or None if never downloaded."""
+        stored = (self._entries.get(arxiv_id) or {}).get("pdf")
+        if not stored:
+            return None
+        path = Path(stored)
+        return path if path.is_absolute() else self.folder / path
+
+    def set_pdf(self, arxiv_id: str, path: Optional[Path]) -> None:
+        """Record a PDF's location, relative to the library folder when it is inside it,
+        so the whole folder can be moved or synced."""
+        if path is None:
+            self._entries[arxiv_id]["pdf"] = None
+            return
+        try:
+            stored = Path(path).resolve().relative_to(self.folder.resolve()).as_posix()
+        except ValueError:
+            stored = str(Path(path).resolve())
+        self._entries[arxiv_id]["pdf"] = stored
+
+    def pdfs_in(self, folder: Path) -> List[str]:
+        """Ids of saved papers whose downloaded PDF sits in this folder."""
+        folder = Path(folder).resolve()
+        ids = []
+        for arxiv_id in self._entries:
+            path = self.pdf_path(arxiv_id)
+            if path and path.is_file() and path.parent.resolve() == folder:
+                ids.append(arxiv_id)
+        return ids
 
     def untag(self, arxiv_id: str, tags: Iterable[str]) -> None:
         entry = self._entries[arxiv_id]

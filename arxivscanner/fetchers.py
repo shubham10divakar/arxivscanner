@@ -434,6 +434,17 @@ def fetch_papers(ids: Sequence[str]) -> Tuple[List[Paper], List[str]]:
     return found, missing
 
 
+PDF_BASE = "https://arxiv.org/pdf/"
+
+
+def fetch_pdf(arxiv_id: str) -> bytes:
+    """The latest version's PDF. Raises FetchError if arXiv doesn't return a PDF."""
+    data = http_get(PDF_BASE + arxiv_id)
+    if not data.startswith(b"%PDF"):
+        raise FetchError(f"arXiv didn't return a PDF for {arxiv_id} (it may be withdrawn or still being processed)")
+    return data
+
+
 # ---------------------------------------------------------------- helpers
 
 def dedupe(papers: Iterable[Paper]) -> List[Paper]:

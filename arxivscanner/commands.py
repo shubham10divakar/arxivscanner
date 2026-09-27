@@ -1,4 +1,4 @@
-"""Reading-list commands: save, saved, unsave."""
+"""Reading-list commands: save, saved, unsave, config."""
 from __future__ import annotations
 
 import argparse
@@ -11,12 +11,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Sequence, Tuple
 
-from . import display
-from .fetchers import fetch_papers
-from .filters import filter_keywords, keyword_pattern
+from . import display, fetchers
 from . import library as _library
+from .fetchers import FetchError, fetch_papers
+from .filters import filter_keywords, keyword_pattern
 from .library import (ENV_LIBRARY, Library, folder_stats, human_size, last_list, load_config, move_library,
-                      paper_from_dict, pdf_folder, remember_list, resolve_library, save_config)
+                      move_pdfs, paper_from_dict, pdf_filename, pdf_folder, remember_list, resolve_library,
+                      save_config, write_file_atomic)
 from .models import Paper, split_id
 
 _ID_RE = re.compile(r"\d{4}\.\d{4,5}|[a-z\-]+(?:\.[A-Z]{2})?/\d{7}")
@@ -61,6 +62,35 @@ def resolve_refs(refs: Sequence[str], shown: Sequence[Paper]) -> Tuple[List[Tupl
     return found, lookup, errors
 
 
+def download_pdfs(library: Library, ids: Sequence[str]) -> List[str]:
+    """Download the PDFs of these saved papers that don't have one yet. Returns error messages."""
+    folder = pdf_folder(library.folder)
+    todo = []
+    for arxiv_id in ids:
+        existing = library.pdf_path(arxiv_id)
+        if not (existing and existing.is_file()):
+            todo.append(arxiv_id)
+    errors = []
+    for n, arxiv_id in enumerate(todo, 1):
+        target = folder / pdf_filename(paper_from_dict(library.get(arxiv_id)), folder)
+        try:
+            if target.is_file():
+                note = "already in the folder"
+            else:
+                if n > 1:
+                    fetchers.time.sleep(fetchers.API_DELAY)   # one at a time, as arXiv asks
+                data = fetchers.fetch_pdf(arxiv_id)
+                write_file_atomic(target, data)
+                note = human_size(len(data))
+            library.set_pdf(arxiv_id, target)
+            print(f"  PDF {n}/{len(todo)}  {target.name}  ({note})")
+        except FetchError as e:
+            errors.append(f"{arxiv_id}: {e}")
+    if todo:
+        print(display.c(f"  PDFs are in {folder}", "dim"))
+    return errors
+
+
 def _report_errors(errors: Sequence[str]) -> None:
     for e in errors:
         print(f"  ! {e}", file=sys.stderr)
@@ -76,6 +106,8 @@ def cmd_save(argv: Sequence[str]) -> int:
         epilog="examples:  arxivscanner save 3 7 12 --tag important   |   arxivscanner save 2609.30264")
     p.add_argument("refs", nargs="+", metavar="N_OR_ID", help="list numbers (3 7 12) or arXiv ids/links")
     p.add_argument("--tag", nargs="+", default=[], metavar="TAG", help="tags to add, e.g. --tag important")
+    p.add_argument("--pdf", action="store_true",
+                   help="also download the PDFs (always on with `arxivscanner config --auto-pdf on`)")
     _library_arg(p)
     args = p.parse_args(argv)
     display.setup_output()
@@ -99,6 +131,9 @@ def cmd_save(argv: Sequence[str]) -> int:
             print(f"{label}{paper.arxiv_id:<11} {_short_title(paper.title)}"
                   + (f"  [{', '.join(tags)}]" if tags else "") + note)
         library.save()
+        if args.pdf or load_config().get("auto_pdf"):
+            errors += download_pdfs(library, [paper.arxiv_id for _, paper in found])
+            library.save()
         print(display.c(f"{len(library)} papers in your library. See them with: arxivscanner saved", "dim"))
     _report_errors(errors)
     return 1 if errors else 0
@@ -106,14 +141,18 @@ def cmd_save(argv: Sequence[str]) -> int:
 
 # ---------------------------------------------------------------- saved
 
-def _saved_line(entry: dict) -> str:
+def _saved_lines(library: Library, entry: dict) -> List[str]:
     parts = []
     saved_at = entry.get("saved_at", "")
     if saved_at:
         parts.append("Saved " + datetime.fromisoformat(saved_at).strftime("%d %b %Y"))
     if entry.get("tags"):
         parts.append("tags: " + ", ".join(entry["tags"]))
-    return "★ " + " · ".join(parts)
+    lines = ["★ " + " · ".join(parts)]
+    pdf = library.pdf_path(entry["arxiv_id"])
+    if pdf:
+        lines.append(f"PDF: {pdf}" if pdf.is_file() else f"PDF missing (was {pdf}); get it again with --download")
+    return lines
 
 
 def cmd_saved(argv: Sequence[str]) -> int:
@@ -123,6 +162,7 @@ def cmd_saved(argv: Sequence[str]) -> int:
     p.add_argument("--tag", nargs="+", default=[], metavar="TAG", help="only papers with any of these tags")
     p.add_argument("-k", "--keyword", nargs="+", metavar="WORD", dest="keywords",
                    help="only papers whose title or abstract mentions any of these words")
+    p.add_argument("--download", action="store_true", help="download the PDFs these papers don't have yet")
     p.add_argument("--short", action="store_true", help="trim abstracts")
     p.add_argument("--json", metavar="FILE", help="also save the list as JSON")
     p.add_argument("--md", metavar="FILE", help="also save the list as Markdown")
@@ -137,6 +177,13 @@ def cmd_saved(argv: Sequence[str]) -> int:
     pattern = keyword_pattern(args.keywords or [])
     if pattern:
         entries = [e for e in entries if filter_keywords([paper_from_dict(e)], pattern)]
+    errors: List[str] = []
+    if args.download and entries:
+        print(f"Downloading PDFs for {len(entries)} saved paper(s) that need one …", file=sys.stderr)
+        errors = download_pdfs(library, [e["arxiv_id"] for e in entries])
+        library.save()
+        entries = [library.get(e["arxiv_id"]) for e in entries]
+        print()
     papers = [paper_from_dict(e) for e in entries]
 
     display.print_library_header(folder, len(library), library.tag_counts(), len(papers),
@@ -147,7 +194,7 @@ def cmd_saved(argv: Sequence[str]) -> int:
         else:
             print("No saved papers match.")
         return 0
-    extra = {e["arxiv_id"]: [_saved_line(e)] for e in entries}
+    extra = {e["arxiv_id"]: _saved_lines(library, e) for e in entries}
     display.print_papers(papers, short=args.short, highlight=pattern, extra=extra)
     remember_list(papers)
 
@@ -159,7 +206,8 @@ def cmd_saved(argv: Sequence[str]) -> int:
     if args.md:
         display.export_markdown(papers, args.md, title="Saved papers", highlight=pattern, extra=extra)
         print(f"Saved Markdown → {args.md}", file=sys.stderr)
-    return 0
+    _report_errors(errors)
+    return 1 if errors else 0
 
 
 # ---------------------------------------------------------------- unsave
@@ -171,6 +219,7 @@ def cmd_unsave(argv: Sequence[str]) -> int:
         epilog="examples:  arxivscanner unsave 2609.30264   |   arxivscanner unsave 3 --tag to-read")
     p.add_argument("refs", nargs="+", metavar="N_OR_ID", help="list numbers (from the last list shown) or arXiv ids")
     p.add_argument("--tag", nargs="+", default=[], metavar="TAG", help="remove only these tags, keep the papers")
+    p.add_argument("--delete-pdf", action="store_true", help="also delete the downloaded PDF files")
     _library_arg(p)
     args = p.parse_args(argv)
     display.setup_output()
@@ -189,8 +238,15 @@ def cmd_unsave(argv: Sequence[str]) -> int:
             library.untag(arxiv_id, args.tag)
             print(f"Removed tag(s) {', '.join(args.tag)} from {arxiv_id} {_short_title(entry.get('title', ''))}")
         else:
+            pdf = library.pdf_path(arxiv_id)
             library.remove(arxiv_id)
             print(f"Removed {arxiv_id} {_short_title(entry.get('title', ''))}")
+            if pdf and pdf.is_file():
+                if args.delete_pdf:
+                    pdf.unlink()
+                    print(f"  deleted {pdf}")
+                else:
+                    print(display.c(f"  PDF kept: {pdf} (add --delete-pdf to delete it)", "dim"))
         changed = True
     if changed:
         library.save()
@@ -212,9 +268,8 @@ def _show_config() -> None:
     print(f"Saved papers: {papers}   PDFs: {n_pdfs} ({human_size(size)})")
 
 
-def _ask_move(old: Path, new: Path, papers: int, n_pdfs: int, size: int) -> str:
+def _ask_move(what: str, old: Path, new: Path) -> str:
     """'move', 'fresh' or 'cancel'. Without a terminal to ask in, don't move."""
-    what = f"{papers} saved papers" + (f" and {n_pdfs} PDFs ({human_size(size)})" if n_pdfs else "")
     if not sys.stdin.isatty():
         print(f"You have {what} in {old}. They stay there; run the same command with --move to move them.")
         return "fresh"
@@ -241,8 +296,10 @@ def cmd_config(argv: Sequence[str]) -> int:
                    help='separate folder for downloaded PDFs ("default" for a pdfs folder inside the library)')
     p.add_argument("--auto-pdf", choices=("on", "off"), help="download the PDF of every paper you save")
     move = p.add_mutually_exclusive_group()
-    move.add_argument("--move", action="store_true", help="when changing --library, move the saved papers without asking")
-    move.add_argument("--no-move", action="store_true", help="when changing --library, leave the old library where it is")
+    move.add_argument("--move", action="store_true",
+                      help="when changing --library or --pdfs, move what's there without asking")
+    move.add_argument("--no-move", action="store_true",
+                      help="when changing --library or --pdfs, leave the old files where they are")
     args = p.parse_args(argv)
     display.setup_output()
 
@@ -258,7 +315,8 @@ def cmd_config(argv: Sequence[str]) -> int:
             papers, n_pdfs, size = folder_stats(old)
             choice = "fresh"
             if papers or n_pdfs:
-                choice = "move" if args.move else "fresh" if args.no_move else _ask_move(old, new, papers, n_pdfs, size)
+                what = f"{papers} saved papers" + (f" and {n_pdfs} PDFs ({human_size(size)})" if n_pdfs else "")
+                choice = "move" if args.move else "fresh" if args.no_move else _ask_move(what, old, new)
             if choice == "cancel":
                 print("Nothing changed.")
                 return 0
@@ -271,11 +329,24 @@ def cmd_config(argv: Sequence[str]) -> int:
             config["library"] = str(new)
         print(f"Library folder: {new}")
     if args.pdfs is not None:
+        library_folder = Path(config["library"]).expanduser() if config.get("library") else _library.default_library()
+        old_dir = pdf_folder(library_folder)
+        new_dir = library_folder / "pdfs" if args.pdfs == "default" else Path(args.pdfs).expanduser().resolve()
+        if new_dir.resolve() != old_dir.resolve():
+            here = Library(library_folder).pdfs_in(old_dir)
+            if here:
+                choice = "move" if args.move else "fresh" if args.no_move else \
+                    _ask_move(f"{len(here)} downloaded PDFs", old_dir, new_dir)
+                if choice == "cancel":
+                    print("Nothing changed.")
+                    return 0
+                if choice == "move":
+                    print(f"  moved {move_pdfs(library_folder, old_dir, new_dir)} PDF(s) to {new_dir}")
         if args.pdfs == "default":
             config.pop("pdfs", None)
             print("PDFs: in a pdfs folder inside the library")
         else:
-            config["pdfs"] = str(Path(args.pdfs).expanduser().resolve())
+            config["pdfs"] = str(new_dir)
             print(f"PDFs: {config['pdfs']}")
     if args.auto_pdf is not None:
         config["auto_pdf"] = args.auto_pdf == "on"

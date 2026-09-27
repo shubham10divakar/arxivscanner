@@ -376,6 +376,105 @@ class TestLibrary(unittest.TestCase):
         self.assertIn("run the same command with --move", out)
         self.assertEqual(len(library.Library(target)), 1)
 
+    def _fake_arxiv(self):
+        """Serve fake PDFs, and a non-PDF for 2608.12345; count the requests."""
+        self.pdf_requests = []
+
+        def fake_get(url, *a, **kw):
+            self.pdf_requests.append(url)
+            if url.endswith("2608.12345"):
+                return b"<html>not ready</html>"
+            return b"%PDF-1.4 fake " + url.encode()
+
+        return mock.patch.multiple(fetchers, http_get=fake_get, time=mock.DEFAULT)
+
+    def test_pdf_filename(self):
+        self.assertEqual(library.pdf_filename(Paper(arxiv_id="2609.30264", title='AD-WM: "Action"/World <Models>?')),
+                         "2609.30264 - AD-WM Action World Models.pdf")
+        long = Paper(arxiv_id="cs/0112017", title="word " * 40 + "end.")
+        name = library.pdf_filename(long)
+        self.assertTrue(name.startswith("cs_0112017 - word word"))
+        self.assertLessEqual(len(name), len("cs_0112017 - ") + 80 + len(".pdf"))
+        # Deep folders: the title shrinks so the full path fits Windows' limit, down to just the id.
+        paper = Paper(arxiv_id="2609.30264", title="Mind What Matters for Reasoning: Aligning Cross-Modal Attention")
+        deep = Path(_home.name) / ("d" * 150)
+        name = library.pdf_filename(paper, deep, path_limit=250)
+        self.assertLessEqual(len(str(deep.resolve() / name)), 250)
+        self.assertTrue(name.startswith("2609.30264 - Mind"))
+        self.assertEqual(library.pdf_filename(paper, Path(_home.name) / ("d" * 240), path_limit=250), "2609.30264.pdf")
+        self.assertEqual(library.pdf_filename(paper, deep, path_limit=None),
+                         "2609.30264 - Mind What Matters for Reasoning Aligning Cross-Modal Attention.pdf")
+
+    def test_save_with_pdf(self):
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        with self._fake_arxiv():
+            code, out, err = run_cli("save", "1", "3", "--pdf")
+        self.assertEqual(code, 1)                                        # #3 (2608.12345) has no PDF
+        self.assertIn("2608.12345: arXiv didn't return a PDF", err)
+        pdf = self.default / "pdfs" / "2609.00001 - Sample Paper A Looped Vision Transformers for Fine-Grained Recognition.pdf"
+        self.assertTrue(pdf.is_file())
+        lib = library.Library(self.default)
+        self.assertEqual(lib.get("2609.00001")["pdf"], "pdfs/" + pdf.name)   # stored relative to the library
+        self.assertIsNone(lib.get("2608.12345")["pdf"])
+
+        code, out, _ = run_cli("saved", "--no-color")
+        self.assertIn(f"PDF: {pdf}", out)
+
+        # Saving with --pdf again doesn't download again.
+        with self._fake_arxiv():
+            run_cli("save", "1", "--pdf")
+        self.assertEqual(self.pdf_requests, [])
+
+    def test_saved_download_and_unsave_delete(self):
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        run_cli("save", "1", "2", "--tag", "important")
+        run_cli("save", "3")
+        with self._fake_arxiv():
+            code, out, err = run_cli("saved", "--tag", "important", "--download", "--no-color")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.pdf_requests), 2)                      # only the tagged ones
+        self.assertEqual(len(list((self.default / "pdfs").glob("*.pdf"))), 2)
+
+        pdf = library.Library(self.default).pdf_path("2609.00002")
+        code, out, _ = run_cli("unsave", "2609.00002")
+        self.assertIn("PDF kept", out)
+        self.assertTrue(pdf.is_file())
+        run_cli("save", "2609.00001")
+        pdf1 = library.Library(self.default).pdf_path("2609.00001")
+        code, out, _ = run_cli("unsave", "2609.00001", "--delete-pdf")
+        self.assertFalse(pdf1.exists())
+
+        # A PDF deleted by hand is reported, and --download fetches it again.
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        with self._fake_arxiv():
+            run_cli("save", "1", "--pdf")
+        library.Library(self.default).pdf_path("2609.00001").unlink()
+        code, out, _ = run_cli("saved", "--no-color")
+        self.assertIn("PDF missing", out)
+
+    def test_auto_pdf_and_moving_pdfs(self):
+        run_cli("config", "--auto-pdf", "on")
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        with self._fake_arxiv():
+            run_cli("save", "1", "2")
+        self.assertEqual(len(list((self.default / "pdfs").glob("*.pdf"))), 2)
+
+        big = Path(_home.name) / "big-drive"
+        code, out, _ = run_cli("config", "--pdfs", str(big), "--move")
+        self.assertIn("moved 2 PDF(s)", out)
+        lib = library.Library(self.default)
+        self.assertEqual(lib.pdf_path("2609.00001").parent, big.resolve())
+        self.assertTrue(lib.pdf_path("2609.00001").is_file())
+        self.assertFalse(list((self.default / "pdfs").glob("*.pdf")))
+
+        # New downloads go to the new folder.
+        run_cli("unsave", "2609.00002", "--delete-pdf")
+        run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")
+        with self._fake_arxiv():
+            run_cli("save", "2")          # auto-PDF is on
+        self.assertEqual(library.Library(self.default).pdf_path("2609.00002").parent, big.resolve())
+        self.assertEqual(len(list(big.glob("*.pdf"))), 2)
+
     def test_library_flag_and_empty_library(self):
         other = Path(_home.name) / "other"
         run_cli("--from-file", str(FIX / "sample_rss.xml"), "--no-color")

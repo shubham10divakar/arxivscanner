@@ -263,6 +263,28 @@ If you already have saved papers when you change the folder, the tool asks wheth
 
 The most specific one wins: the flag, then the environment variable, then the saved setting, then the default. `arxivscanner config --library default` or `--pdfs default` goes back to the defaults. The settings themselves stay in `~/.arxivscanner/config.json`, so the tool can always find your library.
 
+### Downloading PDFs
+
+Download the PDFs of the papers you save, only when you ask:
+
+```bash
+arxivscanner save 1 3 --pdf                          # save and download
+arxivscanner saved --tag important --download        # download what those saved papers are missing
+arxivscanner config --auto-pdf on                    # or: always download when saving
+```
+
+```
+  PDF 1/2  2609.29940 - Mind What Matters for Reasoning Aligning Cross-Modal.pdf  (5.9 MB)
+  PDF 2/2  2609.29726 - A Multimodal Dataset for Survival Prediction in.pdf  (1.1 MB)
+  PDFs are in D:\Research\arxiv\pdfs
+```
+
+- **Readable file names:** the arXiv id plus the start of the title, so you can find papers in your file browser. On Windows the title is shortened when needed to stay within Windows' path length limit.
+- **Where they go:** a `pdfs` folder inside your library, or the folder set with `arxivscanner config --pdfs "E:/big-drive/papers"`. Changing it offers to move the PDFs you already have.
+- **Shown in your list:** `arxivscanner saved` prints each PDF's path under the paper. A PDF you deleted by hand is flagged, and `--download` fetches it again.
+- **Removing papers:** `unsave` keeps the PDF file unless you add `--delete-pdf`.
+- **One at a time:** downloads pause 3 seconds between files, as arXiv asks. The tool is for your own reading list, not for bulk downloading.
+
 ### Which mode should I use?
 
 | Mode | Source | Answers | Notes |
