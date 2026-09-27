@@ -1,45 +1,111 @@
 # arXiv Scanner
 
+[![PyPI version](https://img.shields.io/pypi/v/arxivscanner.svg)](https://pypi.org/project/arxivscanner/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/arxivscanner.svg)](https://pypistats.org/packages/arxivscanner)
+[![Python versions](https://img.shields.io/pypi/pyversions/arxivscanner.svg)](https://pypi.org/project/arxivscanner/)
+
+**PyPI:** https://pypi.org/project/arxivscanner/
+
 A command-line tool that fetches and shows new arXiv papers for a chosen **domain** (archive, for example `cs`) and **subdomain** (category, for example `cs.CV`).
 
 It uses only the Python standard library, so there is nothing to `pip install`. It needs Python 3.9 or later and runs on Windows, macOS and Linux.
 
 ## Installation
 
-Install from PyPI:
+Install from [PyPI](https://pypi.org/project/arxivscanner/):
 
 ```bash
 pip install arxivscanner
-arxivscanner --list        # check it works: prints every known domain and subdomain
+arxivscanner --version     # check it works
 ```
 
-To upgrade later, run `pip install -U arxivscanner`. To get the latest unreleased code, run `pip install git+https://github.com/shubham10divakar/arxivscanner.git`.
+To upgrade later, run `pip install -U arxivscanner`.
 
-This installs an `arxivscanner` command. `python -m arxivscanner …` works the same way. Use `python3 -m pip` on macOS or Linux if `pip` points at an older Python.
-
-To work on the code instead, clone the repo and install it in editable mode:
-
-```bash
-git clone https://github.com/shubham10divakar/arxivscanner.git
-cd arxivscanner
-pip install -e .
-```
-
-Without installing, `python run.py …` from the repo folder also works.
+This installs an `arxivscanner` command. `python -m arxivscanner …` works the same way. On macOS or Linux, use `python3 -m pip install arxivscanner` if `pip` points at an older Python.
 
 ## How to use it
 
 ### 1. Interactive mode (easiest)
 
-Run the tool with no arguments and answer the prompts:
+1. **Start the tool** with no arguments:
+   ```bash
+   arxivscanner
+   ```
+2. **Pick a domain.** Type its number, for example `1` for `cs` (Computer Science).
+3. **Pick one or more subdomains.** Type a number such as `1` (cs.AI), several numbers such as `8,23` (cs.CV and cs.LG), or `0` for the whole domain. You can also type arXiv codes directly, for example `cs.CV cs.LG`.
+4. **Pick a mode.**
+   - `1` (today) shows today's announcement.
+   - `2` (recent) shows papers submitted in the last N days, and asks for N. Press Enter to accept the default of 3.
+5. **Read the results.** Each paper shows its id, title, authors, categories, submission date and comments, the abstract, and links to the abstract page and the PDF.
 
-```bash
-arxivscanner
+Here's a real session: Computer Science → cs.AI → recent, over the last 4 days. The arXiv API refused the query here, so the tool switched to OAI-PMH on its own (see [Rate limiting](#rate-limiting)). Long lists are shortened with `…`.
+
+```
+PS C:\Users\you> arxivscanner
+
+Domains:
+    1. cs                     Computer Science
+    2. eess                   Electrical Engineering and Systems Science
+    3. stat                   Statistics
+    4. math                   Mathematics
+    …
+   15. nlin                   Nonlinear Sciences
+Pick a domain: 1
+
+Computer Science subdomains:
+    1. cs.AI                  Artificial Intelligence
+    2. cs.AR                  Hardware Architecture
+    …
+    8. cs.CV                  Computer Vision and Pattern Recognition
+    …
+   23. cs.LG                  Machine Learning
+    …
+   40. cs.SY                  Systems and Control
+    0. (all of cs)
+Pick subdomain(s): 1
+
+Mode:
+    1. today   (today's announcement, RSS)
+    2. recent  (submitted in the last N days, API)
+Pick a mode [1]: 2
+How many days? [3]: 4
+
+Querying the arXiv API for cs.AI, last 4 day(s) …
+  ! arXiv API refused the query (HTTP 406 Not Acceptable from export.arxiv.org); switching to OAI-PMH …
+  cs:cs:AI: scanned 659 records, 172 submitted in window
+arXiv · cs.AI (Artificial Intelligence)
+Submitted 2026-09-24 → 2026-09-27 (UTC); 172 matched via OAI-PMH
+172 papers
+
+  1. 2609.30266v1
+     LLM Agents Can Easily Tamper With Their Own Traces
+     Jeremy Qin, David Schmotz, Derck Prinzhorn, Luca Beurer-Kellner, Ameya Prabhu, Maksym Andriushchenko
+     cs.CR, cs.AI · 2026-09-24
+     Asynchronous monitoring, incident investigations, and compliance audits primarily rely on agent traces to
+     reconstruct what happened. These analyses assume that LLM agents cannot tamper with their own execution traces.
+     …
+     https://arxiv.org/abs/2609.30266  https://arxiv.org/pdf/2609.30266
+
+  2. 2609.30264v1
+     AD-WM: Action-Discriminative World Models for Counterfactual Model Predictive Control
+     Jiabin Qiu, Zixuan Chen, Hongye Cao, Jieqi Shi, Jing Huo, Yang Gao
+     cs.AI, cs.RO · 2026-09-24 · 9 pages, 5 figures, 4 tables. Project page: https://ad-wm.github.io/
+     Latent world models are typically trained to predict factual transitions, whereas model predictive control
+     (MPC) must compare alternative actions from the same state. A model can therefore achieve low factual
+     …
+     https://arxiv.org/abs/2609.30264  https://arxiv.org/pdf/2609.30264
+
+  …
+
+172. 2609.28859v1
+     Human-AI-Powered Hypothesis Testing: Cost-Aware Selective AI Scoring and Sequential Human Escalation
+     Dae Woong (David) Ham, Xuejun Zhao, Stefanus Jasin, Fenghua Yang
+     cs.AI, cs.IT, math.IT, stat.ME · 2026-09-24
+     …
+     https://arxiv.org/abs/2609.28859  https://arxiv.org/pdf/2609.28859
 ```
 
-1. **Pick a domain.** Type its number (for example `1` for `cs`).
-2. **Pick one or more subdomains.** Type numbers such as `8` or `8,23`, or type `0` for the whole domain. You can also type arXiv codes directly (`cs.CV cs.LG`).
-3. **Pick a mode.** `1` shows today's announcement. `2` shows papers submitted in the last N days, and asks for N.
+Abstracts are printed in full. Add `--short` to trim each one to about 300 characters, or `--md papers.md` to save the list as a Markdown reading list.
 
 ### 2. Command-line flags
 
@@ -81,21 +147,6 @@ arxivscanner --from-file saved_feed.xml        # parse a saved RSS, API or OAI-P
 
 **When is there something new?** arXiv announces Sunday to Thursday at 20:00 US Eastern time, which is about **05:30 IST the next morning**. There are no announcements on Friday or Saturday nights US Eastern, so the Saturday and Sunday (IST) feeds are empty. On those days, use `--mode recent --days 4` or more. A paper only becomes visible once it is announced, so papers submitted on Friday or over the weekend first show up after Sunday night's announcement, in both modes. `cs.CV` usually has 150–300 papers per announcement.
 
-### Example output
-
-```
-arXiv · cs.CV (Computer Vision and Pattern Recognition)
-Announcement: Mon, 28 Sep 2026 00:00:00 -0400
-3 papers  new: 1  cross: 1  replace: 1
-
-  1. 2609.00001v1 [new]
-     Sample Paper A: Looped Vision Transformers for Fine-Grained Recognition
-     Alice Author, Bob Builder, Chandra Kumar
-     cs.CV, cs.LG · 2026-09-28
-     We study looped vision transformers and show strong results on fine-grained benchmarks.
-     https://arxiv.org/abs/2609.00001  https://arxiv.org/pdf/2609.00001
-```
-
 ### Codes
 
 Run `arxivscanner --list` to see all built-in codes. They cover cs, eess, stat, math, q-bio, q-fin, econ, astro-ph, cond-mat, physics, nlin, quant-ph, gr-qc, hep-th and hep-ph. Any other valid arXiv code also works, even if it isn't in the list. Some common ones:
@@ -126,7 +177,12 @@ Busy responses (`429`, `503`) and network errors are retried with back-off, hono
 
 ## Development
 
+To work on the code, clone the repo and install it in editable mode:
+
 ```bash
+git clone https://github.com/shubham10divakar/arxivscanner.git
+cd arxivscanner
+pip install -e .
 python -m unittest discover -s tests     # offline tests, using the XML fixtures in tests/fixtures
 python -m build                          # builds dist/arxivscanner-<version>.tar.gz and .whl (pip install build)
 ```
