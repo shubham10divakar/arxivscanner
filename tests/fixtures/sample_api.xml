@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <title type="html">ArXiv Query</title>
+  <opensearch:totalResults>2</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <opensearch:itemsPerPage>2</opensearch:itemsPerPage>
+  <entry>
+    <id>http://arxiv.org/abs/2609.00010v2</id>
+    <updated>2026-09-27T10:00:00Z</updated>
+    <published>2026-09-26T17:59:59Z</published>
+    <title>Sample API Paper: Graph Attention
+  for Crack Detection</title>
+    <summary>  We propose a graph attention
+  method for concrete crack detection.
+</summary>
+    <author><name>Grace Hopper</name></author>
+    <author><name>Alan Turing</name></author>
+    <arxiv:comment xmlns:arxiv="http://arxiv.org/schemas/atom">12 pages, 5 figures</arxiv:comment>
+    <link href="http://arxiv.org/abs/2609.00010v2" rel="alternate" type="text/html"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2609.00010v2" rel="related" type="application/pdf"/>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2609.00011v1</id>
+    <updated>2026-09-26T12:00:00Z</updated>
+    <published>2026-09-26T12:00:00Z</published>
+    <title>Another API Paper</title>
+    <summary>Short abstract.</summary>
+    <author><name>Ada Lovelace</name></author>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+</feed>
